@@ -1,0 +1,48 @@
+{
+  "city": "Lisbon",
+  "country": "PT",
+  "units": "metric",
+  "generated_at": "2026-11-22T07:00:00Z",
+  "forecast": [
+    {
+      "date": "2026-11-23",
+      "temp_min_c": 11.2,
+      "temp_max_c": 17.8,
+      "condition": "partly cloudy",
+      "precipitation_mm": 0.4,
+      "wind_kph": 14
+    },
+    {
+      "date": "2026-11-24",
+      "temp_min_c": 10.6,
+      "temp_max_c": 16.1,
+      "condition": "light rain",
+      "precipitation_mm": 3.2,
+      "wind_kph": 19
+    },
+    {
+      "date": "2026-11-25",
+      "temp_min_c": 9.8,
+      "temp_max_c": 15.4,
+      "condition": "rain",
+      "precipitation_mm": 11.7,
+      "wind_kph": 24
+    },
+    {
+      "date": "2026-11-26",
+      "temp_min_c": 10.1,
+      "temp_max_c": 16.9,
+      "condition": "partly cloudy",
+      "precipitation_mm": 0.2,
+      "wind_kph": 12
+    },
+    {
+      "date": "2026-11-27",
+      "temp_min_c": 11.9,
+      "temp_max_c": 18.3,
+      "condition": "sunny",
+      "precipitation_mm": 0.0,
+      "wind_kph": 9
+    }
+  ]
+}

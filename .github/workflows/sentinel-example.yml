@@ -1,0 +1,32 @@
+# Self-test: the example endpoints run offline against recorded fixtures, so the
+# deterministic layer can be verified on every push without weights or a GPU.
+#
+# The semantic layer needs a Kev server. Run `sentinel check` and `sentinel chaos`
+# against one on a self-hosted runner, or point SENTINEL_KEV_BASE_URL at a
+# reachable endpoint.
+name: sentinel-example
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  offline-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync
+      - name: Record baselines from the recorded fixtures
+        run: >
+          uv run sentinel baseline set --config examples/sentinel.yaml
+          jobs-api pricing-api weather-forecast news-feed status-page
+      - name: Check the example endpoints (rules only)
+        run: uv run sentinel check --config examples/sentinel.yaml --no-sem --github-summary
+      - name: Prove the rules layer catches structural drift
+        run: >
+          uv run sentinel chaos --config examples/sentinel.yaml --no-sem --assert

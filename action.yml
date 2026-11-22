@@ -1,0 +1,54 @@
+name: "kev-sentinel"
+description: "Check endpoints and scrapers for semantic drift with a local Kev model."
+branding:
+  icon: "activity"
+  color: "purple"
+inputs:
+  config:
+    description: "Path to sentinel.yaml"
+    required: false
+    default: "sentinel.yaml"
+  kev-url:
+    description: "Base URL of a running Kev server (python -m kev.serve)"
+    required: false
+    default: "http://127.0.0.1:8009"
+  model:
+    description: "Kev model name for requests"
+    required: false
+    default: "kev-latest"
+  no-sem:
+    description: "Run deterministic rules only (no Kev server required)"
+    required: false
+    default: "false"
+  live:
+    description: "Fetch URLs even when fixtures are configured"
+    required: false
+    default: "false"
+  install:
+    description: "Path or package spec passed to `uv tool install --from`"
+    required: false
+    default: "."
+runs:
+  using: "composite"
+  steps:
+    - uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+    - name: Install kev-sentinel
+      shell: bash
+      run: uv tool install --force --from "${INSTALL_SPEC}" kev-sentinel
+      env:
+        INSTALL_SPEC: ${{ inputs.install }}
+    - name: sentinel check
+      shell: bash
+      env:
+        CONFIG: ${{ inputs.config }}
+        NO_SEM: ${{ inputs.no-sem }}
+        LIVE: ${{ inputs.live }}
+        SENTINEL_KEV_BASE_URL: ${{ inputs.kev-url }}
+        SENTINEL_KEV_MODEL: ${{ inputs.model }}
+      run: |
+        args=(check --config "${CONFIG}" --github-summary)
+        if [ "${NO_SEM}" = "true" ]; then args+=(--no-sem); fi
+        if [ "${LIVE}" = "true" ]; then args+=(--live); fi
+        sentinel "${args[@]}"

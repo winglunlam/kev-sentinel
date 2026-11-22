@@ -1,0 +1,52 @@
+{
+  "store": "acme-outdoors",
+  "currency": "USD",
+  "updated_at": "2026-11-22T08:30:00Z",
+  "products": [
+    {
+      "sku": "AC-1001",
+      "name": "Trailhead 30L Backpack",
+      "price": 129.0,
+      "compare_at_price": 159.0,
+      "in_stock": true,
+      "category": "backpacks",
+      "rating": 4.6
+    },
+    {
+      "sku": "AC-1002",
+      "name": "Ridge Hiking Boots",
+      "price": 189.5,
+      "compare_at_price": null,
+      "in_stock": true,
+      "category": "footwear",
+      "rating": 4.4
+    },
+    {
+      "sku": "AC-1003",
+      "name": "Summit Down Jacket",
+      "price": 249.0,
+      "compare_at_price": 299.0,
+      "in_stock": false,
+      "category": "jackets",
+      "rating": 4.8
+    },
+    {
+      "sku": "AC-1004",
+      "name": "Cascade Water Bottle 1L",
+      "price": 24.0,
+      "compare_at_price": null,
+      "in_stock": true,
+      "category": "accessories",
+      "rating": 4.1
+    },
+    {
+      "sku": "AC-1005",
+      "name": "Basecamp Two-Person Tent",
+      "price": 349.0,
+      "compare_at_price": 399.0,
+      "in_stock": true,
+      "category": "tents",
+      "rating": 4.7
+    }
+  ]
+}

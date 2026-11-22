@@ -1,0 +1,93 @@
+# Writing questions that Kev answers well
+
+A sentinel check is only as good as its questions. Kev is a small calibrated
+decision model, not a chatbot: it reads one state (your payload) and answers many
+independent questions with probabilities. Questions that fit that shape work;
+open-ended ones do not.
+
+## The shape of a good question
+
+1. **One judgement per question.** "Does this look like a job list?" not "Is this
+   a job list, and are the salaries reasonable?"
+2. **About the payload in front of it.** Do not ask questions that need the
+   current date, live market values, or world knowledge. Ask what is visible in
+   the text. `Were these postings published in 2026?` works because the dates and
+   `generated_at` are both in the state. `Is this a good time to buy?` does not.
+3. **As specific as the failure you care about.** `Do the job descriptions
+   mention duties or responsibilities?` catches content replaced by advertising;
+   `Does this look like a jobs API?` often does not, because the keys still say
+   `title` and `company`.
+4. **Declare the failure condition, not a pass threshold.** `fail_if: "p < 0.55"`
+   reads as "fail when Kev thinks the chance is below 55%". `fail_if: "p > 0.15"`
+   is the right shape for questions where the expected answer is *no*.
+5. **Use `choice` for enums and `score` for ordered plausibility.** A choice
+   question catches a currency or status switch cleanly:
+   `fail_if: "choice != 'usd'"`. A score question is useful when "how plausible"
+   is the judgement: `fail_if: "score < 1.5"`.
+
+## Calibration loop
+
+```bash
+# 1. Record what clean looks like
+sentinel baseline set jobs-api
+
+# 2. Measure clean vs injected drift, and get a suggested threshold
+sentinel calibrate jobs-api
+
+# 3. Edit sentinel.yaml with the suggestion (and your judgement), then prove it
+sentinel check jobs-api
+sentinel chaos --endpoint jobs-api
+```
+
+`calibrate` runs the questions on the clean payload and on the semantic chaos
+injections, then suggests the midpoint between the clean score and the worst
+injected score. A margin under 0.10 (noul) or 0.5 (score) is printed as
+`no separation`: that question is not measuring what you hoped, so rewrite it or
+drop it.
+
+Thresholds are checkpoint-specific. Kev-0.8B, Kev-4B and Kev-9B have different
+calibration temperatures, so re-run `calibrate` when you change `--run`.
+
+## Examples
+
+Good:
+
+```yaml
+job_duties:
+  type: noul
+  instructions: >
+    Do the job descriptions mention duties, skills, or responsibilities that a
+    person would perform in the role?
+  fail_if: "p < 0.55"
+```
+
+Weak — the schema still contains the words `title` and `company`, so a payload
+full of advertising can still pass:
+
+```yaml
+has_titles:
+  type: noul
+  instructions: Does this payload have job titles?
+  fail_if: "p < 0.85"
+```
+
+Good — a choice question for an enum that must not change:
+
+```yaml
+salary_currency:
+  type: choice
+  instructions: Are the listed salaries in US dollars, another currency, or unclear?
+  criteria:
+    usd: US dollars
+    other: Another currency
+    unclear: Missing, mixed, or unclear
+  fail_if: "choice != 'usd'"
+```
+
+## Questions cost almost nothing, but they are not free
+
+All questions for an endpoint go in one Kev request, so the marginal cost of a
+third question is a few output tokens and a little compute. Keep question sets
+under roughly ten per endpoint; past that the request grows and each judgement
+has less context budget. `sentinel check --verbose` prints every observed value,
+which is the fastest way to spot a question that is always 0.02 or always 0.98.

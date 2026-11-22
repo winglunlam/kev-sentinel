@@ -1,0 +1,55 @@
+{
+  "source": "The Daily Ledger",
+  "section": "technology",
+  "fetched_at": "2026-11-22T09:15:00Z",
+  "articles": [
+    {
+      "id": "art_8821",
+      "title": "EU approves new rules for data portability between cloud providers",
+      "summary": "The regulation requires providers to support migration within thirty days and sets limits on egress fees for departing customers.",
+      "author": "Marta Silva",
+      "published_at": "2026-11-22",
+      "url": "https://example.com/a/8821",
+      "tags": [
+        "policy",
+        "cloud"
+      ]
+    },
+    {
+      "id": "art_8822",
+      "title": "Open-source group ships a 0.8B decision model that runs on a laptop",
+      "summary": "The model answers yes/no, multiple-choice, and rating questions with calibrated probabilities and no text generation.",
+      "author": "Jonas Weber",
+      "published_at": "2026-11-21",
+      "url": "https://example.com/a/8822",
+      "tags": [
+        "ai",
+        "open-source"
+      ]
+    },
+    {
+      "id": "art_8823",
+      "title": "Chipmaker reports record quarter on data-center demand",
+      "summary": "Revenue rose 38 percent year over year, and the company raised guidance for the next quarter despite supply constraints.",
+      "author": "Priya Nair",
+      "published_at": "2026-11-20",
+      "url": "https://example.com/a/8823",
+      "tags": [
+        "business",
+        "hardware"
+      ]
+    },
+    {
+      "id": "art_8824",
+      "title": "Researchers find a cheaper way to recycle lithium from old batteries",
+      "summary": "The process uses a low-temperature solvent and recovers more than ninety percent of the lithium in laboratory tests.",
+      "author": "Tomas Berg",
+      "published_at": "2026-11-19",
+      "url": "https://example.com/a/8824",
+      "tags": [
+        "science",
+        "energy"
+      ]
+    }
+  ]
+}

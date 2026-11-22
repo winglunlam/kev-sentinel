@@ -1,0 +1,111 @@
+# Five public-shaped endpoints, recorded as fixtures so this config works offline.
+#
+# The questions are the part you copy. Each one declares the condition that fails,
+# so a threshold is reviewed like code instead of hiding in a default.
+#
+# Thresholds below were calibrated with `sentinel calibrate` against Kev-0.8B
+# (2026-09-21 checkpoint) on these fixtures: clean payloads pass with margin, and
+# the chaos injections in `sentinel chaos` fail. Re-run `sentinel calibrate`
+# against your own checkpoint before trusting the numbers.
+#
+# Baseline first (records the structural fingerprint of each fixture):
+#   sentinel baseline set --config examples/sentinel.yaml jobs-api pricing-api \
+#       weather-forecast news-feed status-page
+#
+# Then, with Kev running on http://127.0.0.1:8009:
+#   sentinel check --config examples/sentinel.yaml
+#   sentinel chaos --config examples/sentinel.yaml
+version: 1
+
+sample_records: 3
+max_state_chars: 6000
+
+sem:
+  base_url: http://127.0.0.1:8009
+  model: kev-latest
+
+endpoints:
+  - name: jobs-api
+    fixture: fixtures/jobs-api.json
+    notes: A job board's JSON API. The silent failure is a payload that is still shaped like a job list but no longer describes jobs.
+    questions:
+      job_duties:
+        type: noul
+        instructions: >
+          Do the job descriptions mention duties, skills, or responsibilities that a
+          person would perform in the role?
+        fail_if: "p < 0.55"
+      salary_currency:
+        type: choice
+        instructions: Are the listed salaries in US dollars, another currency, or unclear?
+        criteria:
+          usd: US dollars
+          other: Another currency
+          unclear: Missing, mixed, or unclear
+        fail_if: "choice != 'usd'"
+      dates_2026:
+        type: noul
+        instructions: Were these job postings published in 2026?
+        fail_if: "p < 0.6"
+
+  - name: pricing-api
+    fixture: fixtures/pricing-api.json
+    notes: A storefront price feed. A currency switch keeps the schema and changes what the numbers mean.
+    questions:
+      products_list:
+        type: noul
+        instructions: Does this payload contain a list of retail products, each with a name and a price?
+        fail_if: "p < 0.55"
+      usd_prices:
+        type: noul
+        instructions: Are these prices in US dollars?
+        fail_if: "p < 0.65"
+
+  - name: weather-forecast
+    fixture: fixtures/weather-forecast.json
+    notes: A forecast API. A units regression keeps the schema, the unit label, and changes the values.
+    questions:
+      forecast_list:
+        type: noul
+        instructions: >
+          Does this payload contain a multi-day weather forecast, with a date and
+          high/low temperatures for each day?
+        fail_if: "p < 0.55"
+      plausible_metric:
+        type: noul
+        instructions: >
+          Are the forecast temperatures between 5 and 25 degrees Celsius, as stated by
+          the units field?
+        fail_if: "p < 0.5"
+
+  - name: news-feed
+    fixture: fixtures/news-feed.json
+    notes: A news API. Stale content is the failure that schema validation cannot see.
+    questions:
+      articles_list:
+        type: noul
+        instructions: Does this payload contain a list of news articles with headlines and summaries?
+        fail_if: "p < 0.55"
+      dates_current:
+        type: noul
+        instructions: >
+          Were these articles published in 2026 or late 2025, as opposed to years
+          earlier?
+        fail_if: "p < 0.55"
+
+  - name: status-page
+    fixture: fixtures/status-page.json
+    notes: A status API. A flipped status keeps every field and every type; only the meaning changes.
+    questions:
+      services_list:
+        type: noul
+        instructions: Does this payload contain a list of services, each with a status and a latency value?
+        fail_if: "p < 0.55"
+      all_operational:
+        type: noul
+        instructions: Are all of the listed services operational?
+        fail_if: "p < 0.55"
+      reporting_outage:
+        type: noul
+        instructions: Is the system currently reporting an outage or a major degradation?
+        fail_if: "p > 0.4"

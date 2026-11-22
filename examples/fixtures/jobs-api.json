@@ -1,0 +1,75 @@
+{
+  "meta": {
+    "total": 128,
+    "page": 1,
+    "per_page": 25,
+    "generated_at": "2026-11-22T09:00:00Z"
+  },
+  "jobs": [
+    {
+      "id": "job_1041",
+      "title": "Senior Backend Engineer",
+      "company": "Northwind Labs",
+      "location": "Berlin, Germany",
+      "remote": true,
+      "employment_type": "full-time",
+      "salary_min": 78000,
+      "salary_max": 96000,
+      "currency": "USD",
+      "posted_at": "2026-11-20",
+      "description": "Design and operate Go services for a payments platform. You will own reliability, tracing, and the migration off a legacy monolith."
+    },
+    {
+      "id": "job_1042",
+      "title": "Product Designer",
+      "company": "Cobalt Studio",
+      "location": "Lisbon, Portugal",
+      "remote": true,
+      "employment_type": "full-time",
+      "salary_min": 52000,
+      "salary_max": 68000,
+      "currency": "USD",
+      "posted_at": "2026-11-18",
+      "description": "Own the end-to-end design of our scheduling product, from research to shipped interface. Work closely with two engineers."
+    },
+    {
+      "id": "job_1043",
+      "title": "Data Engineer",
+      "company": "Harbor Analytics",
+      "location": "Remote (US)",
+      "remote": true,
+      "employment_type": "contract",
+      "salary_min": 85000,
+      "salary_max": 110000,
+      "currency": "USD",
+      "posted_at": "2026-11-21",
+      "description": "Build batch and streaming pipelines on Spark and dbt. The team maintains a warehouse used by forty analysts."
+    },
+    {
+      "id": "job_1044",
+      "title": "Technical Writer",
+      "company": "Pinegrove",
+      "location": "Toronto, Canada",
+      "remote": false,
+      "employment_type": "part-time",
+      "salary_min": 38000,
+      "salary_max": 45000,
+      "currency": "USD",
+      "posted_at": "2026-11-15",
+      "description": "Document SDKs and APIs for developer tools. You will run the docs review process and own the changelog."
+    },
+    {
+      "id": "job_1045",
+      "title": "Site Reliability Engineer",
+      "company": "Meridian Cloud",
+      "location": "Amsterdam, Netherlands",
+      "remote": true,
+      "employment_type": "full-time",
+      "salary_min": 90000,
+      "salary_max": 118000,
+      "currency": "USD",
+      "posted_at": "2026-11-19",
+      "description": "Own incident response and capacity planning for a multi-region Kubernetes platform serving thousands of tenants."
+    }
+  ]
+}

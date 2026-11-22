@@ -1,0 +1,37 @@
+{
+  "status": "ok",
+  "version": "2026.11.4",
+  "checked_at": "2026-11-22T09:30:00Z",
+  "services": [
+    {
+      "name": "api",
+      "status": "operational",
+      "latency_ms": 42,
+      "uptime_30d": 99.98
+    },
+    {
+      "name": "web",
+      "status": "operational",
+      "latency_ms": 61,
+      "uptime_30d": 99.95
+    },
+    {
+      "name": "database",
+      "status": "operational",
+      "latency_ms": 8,
+      "uptime_30d": 99.99
+    },
+    {
+      "name": "worker-queue",
+      "status": "operational",
+      "latency_ms": 15,
+      "uptime_30d": 99.91
+    },
+    {
+      "name": "billing",
+      "status": "degraded",
+      "latency_ms": 840,
+      "uptime_30d": 99.4
+    }
+  ]
+}
