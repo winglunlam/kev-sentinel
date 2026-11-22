@@ -122,5 +122,13 @@ uv run python bench/bench.py --config examples/sentinel.yaml --repeats 2 \
   --json bench/results/kev-0.8b.json --markdown bench/results/kev-0.8b.md
 ```
 
-Results in this directory were produced on an Apple M1 (16 GB), macOS 26.4.1,
-Python 3.13.14, Kev-0.8B served through MLX (`backend: mlx`, temperature 2.35).
+Files:
+
+- `results/kev-0.8b.json` / `.md` — the supported default.
+- `results/kev-0.5b.json` / `.md` — the superseded Qwen2.5 prototype, with its own
+  recalibrated config at `configs/kev-0.5b.yaml`.
+- `results/model-comparison.md` — merged from the two runs.
+
+Results were produced on an Apple M1 (16 GB), macOS 26.4.1, Python 3.13.14.
+Kev-0.8B ran through MLX (`backend: mlx`, temperature 2.35); Kev-0.5B ran through
+torch/MPS (`temperature: 1.0`), which is why it is slower despite being smaller.

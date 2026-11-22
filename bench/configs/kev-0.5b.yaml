@@ -1,0 +1,116 @@
+# Example config recalibrated for the Kev-0.5B prototype (Qwen2.5-0.5B,
+# temperature 1.0). Thresholds are much looser than examples/sentinel.yaml
+# because that checkpoint is uncalibrated; see bench/results/kev-0.5b.md.
+# This file exists so the 0.5B comparison row is reproducible.
+
+version: 1
+sample_records: 3
+max_state_chars: 6000
+sem:
+  base_url: http://127.0.0.1:8009
+  model: kev-latest
+endpoints:
+- name: jobs-api
+  fixture: ../../examples/fixtures/jobs-api.json
+  notes: A job board's JSON API. The silent failure is a payload that is still shaped like a job list
+    but no longer describes jobs.
+  questions:
+    job_duties:
+      type: noul
+      instructions: 'Do the job descriptions mention duties, skills, or responsibilities that a person
+        would perform in the role?
+
+        '
+      fail_if: p < 0.7
+    salary_currency:
+      type: choice
+      instructions: Are the listed salaries in US dollars, another currency, or unclear?
+      criteria:
+        usd: US dollars
+        other: Another currency
+        unclear: Missing, mixed, or unclear
+      fail_if: choice != 'usd'
+    dates_2026:
+      type: noul
+      instructions: Were these job postings published in 2026?
+      fail_if: p < 0.35
+- name: pricing-api
+  fixture: ../../examples/fixtures/pricing-api.json
+  notes: A storefront price feed. A currency switch keeps the schema and changes what the numbers mean;
+    a stale feed keeps every field and moves only the dates.
+  questions:
+    products_list:
+      type: noul
+      instructions: Does this payload contain a list of retail products, each with a name and a price?
+      fail_if: p < 0.55
+    usd_prices:
+      type: noul
+      instructions: Are these prices in US dollars?
+      fail_if: p < 0.6
+    updated_2026:
+      type: noul
+      instructions: Were these products updated in 2026?
+      fail_if: p < 0.3
+- name: weather-forecast
+  fixture: ../../examples/fixtures/weather-forecast.json
+  notes: A forecast API. A units regression keeps the schema, the unit label, and changes the values.
+  questions:
+    forecast_list:
+      type: noul
+      instructions: 'Does this payload contain a multi-day weather forecast, with a date and high/low
+        temperatures for each day?
+
+        '
+      fail_if: p < 0.55
+    plausible_metric:
+      type: noul
+      instructions: 'Are the forecast temperatures between 5 and 25 degrees Celsius, as stated by the
+        units field?
+
+        '
+      fail_if: p < 0.5
+    dates_2026:
+      type: noul
+      instructions: Do the dates in this payload fall in 2026?
+      fail_if: p < 0.4
+- name: news-feed
+  fixture: ../../examples/fixtures/news-feed.json
+  notes: A news API. Stale content is the failure that schema validation cannot see.
+  questions:
+    articles_list:
+      type: noul
+      instructions: Does this payload contain a list of news articles with headlines and summaries?
+      fail_if: p < 0.55
+    dates_current:
+      type: noul
+      instructions: 'Were these articles published in 2026 or late 2025, as opposed to years earlier?
+
+        '
+      fail_if: p < 0.35
+    summary_content:
+      type: noul
+      instructions: 'Do the summaries describe a specific news event or report, rather than advertising
+        or promotional text?
+
+        '
+      fail_if: p < 0.5
+- name: status-page
+  fixture: ../../examples/fixtures/status-page.json
+  notes: A status API. A flipped status keeps every field and every type; only the meaning changes.
+  questions:
+    services_list:
+      type: noul
+      instructions: Does this payload contain a list of services, each with a status and a latency value?
+      fail_if: p < 0.55
+    all_operational:
+      type: noul
+      instructions: Are all of the listed services operational?
+      fail_if: p < 0.55
+    reporting_outage:
+      type: noul
+      instructions: Is the system currently reporting an outage or a major degradation?
+      fail_if: p > 0.55
+    dates_2026:
+      type: noul
+      instructions: Do the dates in this payload fall in 2026?
+      fail_if: p < 0.65

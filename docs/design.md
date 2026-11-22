@@ -111,6 +111,9 @@ an endpoint drift.
 - Kev-0.8B is the cheap default and its calibration is narrower than Kev-4B/9B.
   Content-authenticity questions separate less cleanly on it; see the model table
   in the Kev README for what each checkpoint is good at.
+- The smallest useful checkpoint is 0.8B. The superseded 0.5B prototype was
+  measured (see [bench/results/model-comparison.md](../bench/results/model-comparison.md)):
+  it is slower on Apple Silicon and less accurate. There is no 0.4B release.
 
 ## Attribution
 

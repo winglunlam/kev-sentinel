@@ -325,6 +325,28 @@ Cost is electricity only (60 W at $0.30/kWh) from the mean latency; hardware amo
 
 The 6 missed drift runs are all one class: `wrong-entity` on payloads with no long-text field (pricing, weather, status). Content replacement over short scalar fields is a known blind spot — the payload shape barely changes, and there is nothing for a content question to read. That is the intended failure mode of a question-driven tool: the gap is visible, attributable, and closable by adding a field-specific question if your endpoint has one.
 
+### Smaller checkpoints
+
+There is no Kev-0.4B. The smallest published checkpoint is Kev-0.5B — the
+Qwen2.5-0.5B prototype, superseded and shipped at temperature 1.0 (no fitted
+calibration). It was measured on the same labelled set with thresholds
+recalibrated for it ([bench/configs/kev-0.5b.yaml](bench/configs/kev-0.5b.yaml)):
+
+| Checkpoint | Detection | False positives | p50 per check | Mean | Cost / 1,000 checks |
+|---|---|---|---|---|---|
+| Kev-0.8B + rules (Qwen3.5, MLX) | **90/96 (94%)** | **0/10** | **134.7 ms** | 398.7 ms | $0.002 |
+| Kev-0.5B + rules (Qwen2.5, torch/MPS) | 84/96 (88%) | 2/10 | 336.8 ms | 286.8 ms | $0.0014 |
+
+The 0.5B is smaller on disk but worse on every axis that matters here: it misses
+more drift classes, produced two false positives on the clean jobs payload (its
+choice question calls USD salaries "unclear"), and is slower at p50 because
+Qwen2.5 is attention-only and has no MLX path on Apple Silicon. Thresholds also
+had to be loosened a lot, which is expected from an uncalibrated checkpoint.
+
+**0.8B is the practical floor.** If you need a smaller footprint than that, lower
+`sample_records` and `max_state_chars` before reaching for an older checkpoint.
+The merged table lives at [bench/results/model-comparison.md](bench/results/model-comparison.md).
+
 What the numbers mean:
 
 - **Detection**: the rules-only row is the schema-validator baseline; the second row is the full pipeline. Kev adds 22 detections that structural checks cannot make, with no false positives on the clean payloads.
