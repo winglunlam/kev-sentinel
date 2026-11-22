@@ -76,6 +76,13 @@ Sampling is a deliberate trade: 100 records rarely change a judgement, and every
 token is latency. If your endpoint needs full fidelity, raise `sample_records`
 and `max_state_chars` and re-run `calibrate`.
 
+Kev-0.8B itself is not the constraint. The Kev 1.0 model card documents states of
+up to 65,536 tokens (accuracy validated to 8,192; training states were at most
+7,552) and about 3.8 GB of resident GPU memory on an L4. A longer state costs
+prefill time — roughly 1.4 s for 8k tokens and 21 s for 65k on an M5 — and the
+prefix cache only helps within one request's set of questions, because the next
+check usually sends a different payload.
+
 ## Alerts
 
 The default is to alert on the transition into failure, not on every failing run,

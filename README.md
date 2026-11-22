@@ -107,7 +107,7 @@ uv sync --extra serve          # add the MLX backend on Apple Silicon via `--ext
 uv run --extra serve python -m kev.serve --run jaredpalmer/kev-0.8b --port 8009
 ```
 
-Kev-0.8B is the cheapest default and works on a laptop. Kev-4B is worth the extra memory when semantic accuracy matters more than latency; point `sem.model` or `SENTINEL_KEV_MODEL` at whatever checkpoint your server is running.
+Kev-0.8B is the cheapest default: it fits a 4 GB GPU (an L4 is enough) or any Apple Silicon Mac. Kev-4B is worth the extra memory when semantic accuracy matters more than latency; point `sem.model` or `SENTINEL_KEV_MODEL` at whatever checkpoint your server is running.
 
 ### 2. Install kev-sentinel
 
@@ -126,6 +126,18 @@ sentinel --help
 ```
 
 If Kev is not on `http://127.0.0.1:8009`, set `SENTINEL_KEV_BASE_URL` or edit `sem.base_url` in `sentinel.yaml`.
+
+## Serving and hardware
+
+| | |
+|---|---|
+| Kev-0.8B server | [Kev-0.8B](https://huggingface.co/jaredpalmer/kev-0.8b) is Apache-2.0 on `Qwen3.5-0.8B-Base`. The Kev 1.0 model card measures **3.8 GB resident GPU memory** on an NVIDIA L4 (any ~4 GB GPU works) and ships an MLX path for any Apple Silicon Mac. CPU works, slower. |
+| sentinel | Python 3.11+; no GPU, no model weights; no network egress beyond the endpoint you configure and an optional webhook. |
+| Context | Kev-0.8B serves states of up to **65,536 tokens** plus at least 8,192 tokens per question. Accuracy is validated to 8,192 tokens (training states were at most 7,552), so longer states are served but outside the validated length. |
+| State budget | sentinel samples record lists to `sample_records` and caps the state at `max_state_chars` (6,000 characters by default, roughly 1.5k tokens). That is a latency choice, not a model limit: raise both if a judgement needs full fidelity. |
+| Latency | On an M5, a fresh 8k-token state prefills in about 1.4 s and then answers off the cached prefix in ~74 ms; at 65k tokens it is ~21 s fresh / ~202 ms cached. An endpoint's payload changes every run, so that cache helps within a run's question batch, not across runs. |
+
+Sources: the [Kev-0.8B model card](https://huggingface.co/jaredpalmer/kev-0.8b) (Kev 1.0, 2026-09-24) for serving, context and long-state measurements; [bench/results](bench/results) for the sentinel end-to-end numbers. Our own checks were run against `jaredpalmer/kev-0.8b` served locally through MLX.
 
 ## Quick start on your endpoint
 
