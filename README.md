@@ -399,7 +399,8 @@ Issues and pull requests are welcome. If you publish a "built with Kev" tool, te
 
 ```bash
 uv sync --extra dev
-uv run pytest                 # 83 tests, no weights or network
+uv run ruff check .           # lint
+uv run pytest                 # 85 tests, no weights or network
 make check                    # rules-only check over the example fixtures
 make demo                     # requires a Kev server on :8009
 make demo-offline             # the same story, rules layer only

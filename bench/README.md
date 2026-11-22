@@ -97,6 +97,20 @@ and `{"type": "score", "score": 0.0, "confidence": 0.0}`. The parser is in
   cries wolf is worse than no checker, so this column matters more than
   detection.
 
+## Comparing models
+
+`bench/compare_models.py` merges result files into one table and removes the
+duplicated rules-only row:
+
+```bash
+uv run python bench/compare_models.py bench/results/*.json --out bench/results/models.md
+```
+
+Pass `--label kev-0.8b` to `bench/bench.py` so the merged table names the run.
+Kev-0.8B is the default this project targets; if you benchmark a larger Kev
+checkpoint on the same labelled set, the comparison table shows what the extra
+latency buys for your payloads.
+
 ## Reproducing
 
 ```bash

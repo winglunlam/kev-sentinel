@@ -243,6 +243,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--repeats", type=int, default=1, help="times to repeat each case (default 1)")
     parser.add_argument("--judge-cmd", help="external judge command for a cloud baseline")
     parser.add_argument("--no-kev", action="store_true", help="rules-only measurement")
+    parser.add_argument("--label", help="name for this run in reports (e.g. kev-0.8b)")
     parser.add_argument("--watts", type=float, default=60.0, help="machine power draw for the cost estimate")
     parser.add_argument("--price-per-kwh", type=float, default=0.30)
     parser.add_argument("--json", dest="json_path", help="write raw results as JSON")
@@ -314,6 +315,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "cpu": platform.processor() or "unknown",
         "python": platform.python_version(),
         "model": config.sem.model,
+        "label": args.label or config.sem.model,
         "kev_base_url": config.sem.base_url,
         "watts": args.watts,
         "price_per_kwh": args.price_per_kwh,

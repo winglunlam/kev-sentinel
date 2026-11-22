@@ -1,7 +1,10 @@
-.PHONY: install test check baseline demo demo-offline bench clean
+.PHONY: install lint test check baseline demo demo-offline bench clean
 
 install:
 	uv sync --extra dev
+
+lint:
+	uv run ruff check .
 
 test:
 	uv run pytest

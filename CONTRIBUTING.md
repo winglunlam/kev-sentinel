@@ -4,6 +4,7 @@
 
 ```bash
 uv sync --extra dev
+uv run ruff check .
 uv run pytest
 ```
 
