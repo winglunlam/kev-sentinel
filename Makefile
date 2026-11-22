@@ -1,4 +1,4 @@
-.PHONY: install test check baseline demo bench clean
+.PHONY: install test check baseline demo demo-offline bench clean
 
 install:
 	uv sync --extra dev
@@ -12,6 +12,10 @@ baseline:
 
 check: baseline
 	uv run sentinel check --config examples/sentinel.yaml --no-sem
+
+# No Kev server required: rules layer only.
+demo-offline: baseline
+	uv run sentinel demo --config examples/sentinel.yaml --no-sem
 
 # Requires a Kev server, e.g.
 #   cd ../kev-main && uv run --extra serve python -m kev.serve --run jaredpalmer/kev-0.8b --port 8009

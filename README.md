@@ -2,12 +2,17 @@
 
 **Uptime monitoring for meaning.** Your endpoint returns `200`, valid JSON, and the same fields — and the data is wrong.
 
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-0a0a0a)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-0a0a0a)](pyproject.toml)
+[![Model: Kev](https://img.shields.io/badge/model-Kev--0.8B-0a0a0a)](https://github.com/jaredpalmer/kev)
+
 kev-sentinel checks APIs and scrapers for two kinds of change: the ones a schema validator can see, and the ones only a model that reads the payload can. It runs a local [Kev](https://github.com/jaredpalmer/kev) checkpoint, batches every question for an endpoint into one request, and turns calibrated probabilities into pass/fail conditions you commit to git.
 
 - **Two layers.** A structural fingerprint catches removed fields, type changes, count drops, null floods, HTML error pages, and truncated bodies. Kev catches a payload that still validates but no longer means what it meant.
 - **Cheap enough to run on every endpoint, every hour.** Kev is a prefill-only pointer head: no text generation, one request per endpoint, CPU or Apple Silicon.
 - **No egress.** The payload goes to a model on your machine, not to a cloud API.
-- **Falsifiable.** `sentinel chaos` injects silent changes and prints which layer catches each one. `sentinel calibrate` measures clean vs drifted scores and suggests thresholds.
+- **Starts from your payload, not a blank file.** `sentinel init` inspects the baseline and proposes questions for the currency, date, status, units, and text fields it can see, each with a rationale. `sentinel calibrate` replaces the defaults with measured thresholds.
+- **Falsifiable.** `sentinel chaos` injects silent changes and prints which layer catches each one. `sentinel demo` does the whole story in one command.
 - **CI-native.** Exit codes, JSON output, GitHub step summaries, and a composite action.
 
 ```
@@ -42,33 +47,52 @@ Warehouse data-quality tools (Soda, Great Expectations, dbt tests) check tables 
 ## The demo
 
 ```console
-$ sentinel init jobs-api --fixture examples/fixtures/jobs-api.json
-wrote sentinel.yaml
-baseline for jobs-api: HTTP 200, 5 items, 2422 bytes, 19 schema paths (fixture)
-data: .sentinel/sentinel.db
+$ sentinel demo --config examples/sentinel.yaml
+1. baseline
 
-next:
-  sentinel check jobs-api
-  sentinel chaos --endpoint jobs-api
-
-$ sentinel check status-page --config examples/sentinel.yaml
-✓ status-page  200  644 ms  fixture
+2. check the clean payloads
+✓ jobs-api  200  2345 ms  fixture
+   ✓ rules  HTTP 200 (expected 200)
+   ✓ sem    job_duties: p(true)=0.87
+   ✓ sem    salary_currency: choice=usd (0.69)
+   ✓ sem    dates_2026: p(true)=0.84
+✓ pricing-api  200  950 ms  fixture
+   ✓ rules  HTTP 200 (expected 200)
+   ✓ sem    products_list: p(true)=0.96
+   ✓ sem    usd_prices: p(true)=0.91
+   ✓ sem    updated_2026: p(true)=0.65
+✓ weather-forecast  200  484 ms  fixture
+   ✓ rules  HTTP 200 (expected 200)
+   ✓ sem    forecast_list: p(true)=0.92
+   ✓ sem    plausible_metric: p(true)=0.70
+   ✓ sem    dates_2026: p(true)=0.88
+✓ news-feed  200  581 ms  fixture
+   ✓ rules  HTTP 200 (expected 200)
+   ✓ sem    articles_list: p(true)=0.92
+   ✓ sem    dates_current: p(true)=0.75
+   ✓ sem    summary_content: p(true)=0.80
+✓ status-page  200  540 ms  fixture
    ✓ rules  HTTP 200 (expected 200)
    ✓ sem    services_list: p(true)=0.96
    ✓ sem    all_operational: p(true)=0.98
    ✓ sem    reporting_outage: p(true)=0.03
+   ✓ sem    dates_2026: p(true)=0.83
 
-$ sentinel chaos --config examples/sentinel.yaml --endpoint status-page --inject status-flip
-                     chaos injection: which layer catches the change
+5/5 endpoint(s) ok
+
+3. inject a silent change
+                            chaos injection: which layer catches the change
 ┏━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┓
 ┃ injector    ┃ expected  ┃ rules  ┃ Kev                                                    ┃ detected ┃
 ┡━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━┩
 │ status-flip │ semantics │ passed │ caught: all_operational: p(true)=0.02 fails `p < 0.55` │   yes    │
 └─────────────┴───────────┴────────┴────────────────────────────────────────────────────────┴──────────┘
 1/1 applicable mutations detected · 1 caught by semantics only
+
+verdict: schema unchanged; Kev caught it (all_operational: p(true)=0.02 fails `p < 0.55`).
 ```
 
-`status-flip` rewrites health words to failure states (`ok` → `outage`, `operational` → `down`) and stretches latency values. Types, keys, and counts are untouched. The rules layer passes; Kev does not.
+`status-flip` rewrites health words to failure states (`ok` → `outage`, `operational` → `down`) and stretches latency values. Types, keys, and counts are untouched. The rules layer passes; Kev does not. `sentinel demo --no-sem` runs the same story against the rules layer only, with no Kev server.
 
 ## Install
 
@@ -105,15 +129,43 @@ If Kev is not on `http://127.0.0.1:8009`, set `SENTINEL_KEV_BASE_URL` or edit `s
 
 ## Quick start on your endpoint
 
+```console
+$ sentinel init jobs-api --url https://boards.example.com/api/jobs
+wrote sentinel.yaml
+
+questions inferred from the payload:
+  currency (choice)  fail_if `choice != 'usd'`
+    `currency` is USD across the baseline. A currency switch keeps every field and type intact...
+  published_2026 (noul)  fail_if `p < 0.5`
+    `posted_at` is a date field, mostly 2026 in the baseline. Stale content keeps the schema...
+  description_content (noul)  fail_if `p < 0.5`  (verify)
+    `description` is the payload's long-text field. Content replacement keeps the schema intact...
+```
+
+Then make the thresholds real and prove the layers work:
+
 ```bash
-sentinel init jobs-api --url https://boards.example.com/api/jobs
-$EDITOR sentinel.yaml    # make the questions specific to this endpoint, set fail_if
-sentinel calibrate jobs-api
-sentinel check
+sentinel calibrate jobs-api   # clean vs injected scores → measured thresholds
+sentinel check jobs-api
 sentinel chaos --endpoint jobs-api
 ```
 
-`sentinel init` records the baseline immediately. If the URL is not reachable at setup time, record a baseline later from a real response with `sentinel baseline set jobs-api` (or point it at a recorded file with `--fixture`).
+`sentinel init` records the baseline immediately. If the URL is not reachable at setup time, record a baseline later from a real response with `sentinel baseline set jobs-api` (or point it at a recorded file with `--fixture`). Pass `--no-suggest` to get the two generic guard questions instead of inferred ones, and `sentinel suggest jobs-api` to re-infer later without rewriting the config.
+
+### Starting without writing questions
+
+Question inference is heuristic, not magic. It looks for fields whose change would be semantic:
+
+| Signal in the payload | Question it proposes |
+|---|---|
+| a currency code field | choice: which currency are the amounts in? |
+| `posted_at`, `published_at`, `updated_at`, … | yes/no: were these published/updated in 2026? |
+| a top-level or low-cardinality status field | choice: what is the overall status? |
+| `temp_*`, `temperature`, with a `units` field | yes/no: are the temperatures in the stated range and unit? |
+| a long-text field (`description`, `summary`, …) | yes/no: do these describe the item, rather than advertising? (domain-aware wording for jobs/news content) |
+| dates in metadata only (`generated_at`, `checked_at`, `date`) | yes/no: do the dates in this payload fall in 2026? |
+
+Everything else is a `p > 0.25` error-page guard. Every suggestion is labelled high or medium confidence; medium ones are marked `(verify)` and should be confirmed with `sentinel calibrate` before they gate a deploy.
 
 Sample config:
 
@@ -207,7 +259,9 @@ Snapshots and run history live in `.sentinel/sentinel.db` next to the config (gi
 
 | Command | What it does |
 |---|---|
-| `sentinel init NAME --url URL` | write a starter config and record the baseline |
+| `sentinel init NAME --url URL` | infer questions from the payload, write the config, record the baseline |
+| `sentinel suggest NAME` | print inferred questions as a YAML block (does not edit the config) |
+| `sentinel demo` | baseline, clean check, injected drift, verdict — the 10-second demo |
 | `sentinel baseline set NAME...` | fetch endpoints and record new baselines |
 | `sentinel baseline show NAME` | print the baseline's timestamp, size, schema path count, hash |
 | `sentinel check [NAME...]` | run rules and Kev against the baselines |
@@ -260,20 +314,20 @@ Use `--assert` in CI: it exits nonzero if any failure class goes undetected acro
 
 ## Benchmark
 
-Measured 2026-11-22 on an Apple M1 (16 GB) with `jaredpalmer/kev-0.8b` served via MLX, Python 3.13, over the five example payloads. 46 drift cases, each run twice (92 drift runs) and 5 clean payloads, each run twice (10 clean runs).
+Measured 2026-11-22 on an Apple M1 (16 GB) with `jaredpalmer/kev-0.8b` served via MLX, Python 3.13, over the five example payloads. 48 drift cases, each run twice (96 drift runs) and 5 clean payloads, each run twice (10 clean runs).
 
 | Backend | Detection | False positives | p50 per check | p95 per check | Mean | Cost / 1,000 checks |
 |---|---|---|---|---|---|---|
-| rules only | 68/92 (74%) | 0/10 | 0.0 ms | 0.1 ms | 0.0 ms | $0 |
-| Kev-0.8B + rules | 82/92 (89%) | 0/10 | 126.9 ms | 2432.7 ms | 459.6 ms | $0.0023 |
+| rules only | 68/96 (71%) | 0/10 | 0.0 ms | 0.1 ms | 0.1 ms | $0 |
+| Kev-0.8B + rules | 90/96 (94%) | 0/10 | 134.7 ms | 1751.6 ms | 398.7 ms | $0.002 |
 
-Cost is electricity only (60 W at $0.30/kWh) from the mean latency; hardware amortization is excluded. A cloud comparison is not published because a fair one needs the provider's current prices and a prompt adapter — `bench/bench.py --judge-cmd` runs an external judge over the same labelled set so you can add one without forking the harness.
+Cost is electricity only (60 W at $0.30/kWh) from the mean latency; hardware amortization is excluded. A cloud comparison is not published because a fair one needs the provider's current prices — [`bench/judge_openai.py`](bench/judge_openai.py) is a ready adapter for any OpenAI-compatible endpoint, and `bench/bench.py --judge-cmd` runs it over the same labelled set.
 
-The 10 missed drift runs are the two failure classes no question covers on the endpoints where they were injected: `wrong-entity` on endpoints without a content-authenticity question, and `stale-dates` on endpoints without a date question. That is the intended failure mode of a question-driven tool: the gap is visible, attributable, and closable with `sentinel calibrate`.
+The 6 missed drift runs are all one class: `wrong-entity` on payloads with no long-text field (pricing, weather, status). Content replacement over short scalar fields is a known blind spot — the payload shape barely changes, and there is nothing for a content question to read. That is the intended failure mode of a question-driven tool: the gap is visible, attributable, and closable by adding a field-specific question if your endpoint has one.
 
 What the numbers mean:
 
-- **Detection**: the rules-only row is the schema-validator baseline; the second row is the full pipeline. Kev adds 14 detections that structural checks cannot make, with no false positives on the clean payloads.
+- **Detection**: the rules-only row is the schema-validator baseline; the second row is the full pipeline. Kev adds 22 detections that structural checks cannot make, with no false positives on the clean payloads.
 - **Latency** varies with state length and prefix-cache hits. p50 is the typical warm check; p95 covers long payloads whose state was not in the cache.
 - **Cost** is dominated by hardware you already own; the electricity estimate is included to make the comparison with per-token APIs concrete.
 
@@ -321,7 +375,7 @@ Without a Kev server, set `no-sem: "true"` and the action runs the deterministic
 - **Synthetic monitoring** (scripted browser flows) catches broken pages, not changed data, and breaks on markup changes.
 - **LLM-on-every-check** sees meaning but pays cloud latency, per-token cost, and egress on every check. That is the trade kev-sentinel refuses to make: a 0.8B prefill-only model, one batched request per endpoint, offline.
 
-The niche is the combination: semantic, per-endpoint, cheap enough to run hourly, and local. If you know a tool that already does that, please open an issue.
+The niche is the combination: semantic, per-endpoint, cheap enough to run hourly, and local. [docs/prior-art.md](docs/prior-art.md) records what was checked and what was not. If you know a tool that already does this, please open an issue.
 
 ## Limits
 
@@ -345,9 +399,10 @@ Issues and pull requests are welcome. If you publish a "built with Kev" tool, te
 
 ```bash
 uv sync --extra dev
-uv run pytest                 # 60+ tests, no weights or network
+uv run pytest                 # 83 tests, no weights or network
 make check                    # rules-only check over the example fixtures
 make demo                     # requires a Kev server on :8009
+make demo-offline             # the same story, rules layer only
 make bench
 ```
 

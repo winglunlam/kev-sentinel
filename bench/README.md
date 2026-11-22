@@ -15,7 +15,7 @@ For each example endpoint:
   (`n/a` in `sentinel chaos`, excluded here too).
 
 The set is rebuilt from scratch on every run, so it cannot go stale. It is small
-(46 drift cases, 5 clean payloads) and that is intentional: it is a regression
+(48 drift cases, 5 clean payloads) and that is intentional: it is a regression
 harness for the example config, not a product benchmark.
 
 ## Backends
@@ -58,6 +58,25 @@ Then run:
 uv run python bench/bench.py --config examples/sentinel.yaml \
   --judge-cmd ./bench/my-judge.py --repeats 2
 ```
+
+### Ready adapter for OpenAI-compatible providers
+
+`bench/judge_openai.py` implements that protocol against any OpenAI-compatible
+chat completions endpoint:
+
+```bash
+export OPENAI_API_KEY=...
+export OPENAI_BASE_URL=https://api.openai.com/v1   # or any compatible gateway
+export OPENAI_MODEL=gpt-4o-mini
+uv run python bench/bench.py --config examples/sentinel.yaml --repeats 2 \
+  --judge-cmd "python bench/judge_openai.py"
+```
+
+It asks for one JSON object of probabilities/labels and validates the reply. It
+has been tested against a mock provider in the test suite, not against a live
+provider in this repository, so treat the resulting numbers as yours to verify.
+Token usage is printed to stderr; the benchmark's cost column shows `—` for
+external judges because provider prices change and are not guessed.
 
 The template only shows the `noul` shape; `choice` and `score` answers use
 `{"type": "choice", "choice": "...", "confidence": 0.0, "probabilities": {...}}`

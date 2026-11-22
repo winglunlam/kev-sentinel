@@ -35,6 +35,17 @@ Questions live in `sentinel.yaml`, not in code. When you add one:
 Questions that are always 0.02 or always 0.98 are not measurements; prefer a
 different phrasing or a different signal.
 
+## Adding a suggestion heuristic
+
+`sentinel/suggest.py` turns payload structure into candidate questions. A new
+heuristic must:
+
+- only fire when a concrete field makes the question meaningful (no guessing),
+- carry a `rationale` naming the field and what a silent change would look like,
+- ship with fixture-based tests in `tests/test_suggest.py`, and
+- have its default threshold validated against a real Kev checkpoint; note the
+  checkpoint in the pull request.
+
 ## Adding a chaos injector
 
 `sentinel/chaos.py` has one function per injector. An injector must:

@@ -119,3 +119,12 @@ def test_run_chaos_rules_only(config):
         assert by_name["wrong-entity"].detected is False
     finally:
         store.close()
+
+
+def test_stale_dates_handles_full_iso_timestamps(examples_config):
+    endpoint = examples_config.endpoint("pricing-api")
+    base = synthetic_result("pricing-api", body=json.dumps(json.loads(endpoint.fixture.read_text())).encode())
+    mutation = MUTATORS["stale-dates"].apply(base, {}, "stale-dates")
+    mutated = json.loads(mutation.body)
+    assert "2019" in json.dumps(mutated)
+    assert mutated != json.loads(base.body)

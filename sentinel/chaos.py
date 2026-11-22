@@ -28,7 +28,7 @@ SPAM = (
     "Best deals on luxury watches, diet pills, and cheap holidays. Click now to claim "
     "your free trial and limited-time discount before it expires!"
 )
-DATE_RE = re.compile(r"\b(19|20)\d{2}-\d{2}-\d{2}\b")
+DATE_RE = re.compile(r"\b(19|20)\d{2}-\d{2}-\d{2}")
 CURRENCY_KEYS = ("price", "salary", "salar", "amount", "cost", "pay", "rate", "fee", "total")
 
 

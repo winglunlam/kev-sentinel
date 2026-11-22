@@ -50,7 +50,7 @@ endpoints:
 
   - name: pricing-api
     fixture: fixtures/pricing-api.json
-    notes: A storefront price feed. A currency switch keeps the schema and changes what the numbers mean.
+    notes: A storefront price feed. A currency switch keeps the schema and changes what the numbers mean; a stale feed keeps every field and moves only the dates.
     questions:
       products_list:
         type: noul
@@ -60,6 +60,10 @@ endpoints:
         type: noul
         instructions: Are these prices in US dollars?
         fail_if: "p < 0.65"
+      updated_2026:
+        type: noul
+        instructions: Were these products updated in 2026?
+        fail_if: "p < 0.5"
 
   - name: weather-forecast
     fixture: fixtures/weather-forecast.json
@@ -77,6 +81,10 @@ endpoints:
           Are the forecast temperatures between 5 and 25 degrees Celsius, as stated by
           the units field?
         fail_if: "p < 0.5"
+      dates_2026:
+        type: noul
+        instructions: Do the dates in this payload fall in 2026?
+        fail_if: "p < 0.5"
 
   - name: news-feed
     fixture: fixtures/news-feed.json
@@ -92,6 +100,12 @@ endpoints:
           Were these articles published in 2026 or late 2025, as opposed to years
           earlier?
         fail_if: "p < 0.55"
+      summary_content:
+        type: noul
+        instructions: >
+          Do the summaries describe a specific news event or report, rather than
+          advertising or promotional text?
+        fail_if: "p < 0.5"
 
   - name: status-page
     fixture: fixtures/status-page.json
@@ -109,3 +123,7 @@ endpoints:
         type: noul
         instructions: Is the system currently reporting an outage or a major degradation?
         fail_if: "p > 0.4"
+      dates_2026:
+        type: noul
+        instructions: Do the dates in this payload fall in 2026?
+        fail_if: "p < 0.5"

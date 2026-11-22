@@ -12,6 +12,16 @@ names are fictional.
 | `news-feed` | article list | articles go from 2026 to 2019 |
 | `status-page` | service status | `ok` flips to `outage`, `operational` to `down` |
 
+## One-command demo
+
+```bash
+sentinel demo --config examples/sentinel.yaml          # needs Kev
+sentinel demo --config examples/sentinel.yaml --no-sem # rules layer only
+```
+
+It records missing baselines, checks every endpoint, injects a silent change, and
+prints which layer caught it.
+
 ## Run it without Kev (rules only)
 
 ```bash

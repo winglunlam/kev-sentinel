@@ -30,3 +30,5 @@ jobs:
       - name: Prove the rules layer catches structural drift
         run: >
           uv run sentinel chaos --config examples/sentinel.yaml --no-sem --assert
+      - name: One-command demo (offline, rules only)
+        run: uv run sentinel demo --config examples/sentinel.yaml --no-sem

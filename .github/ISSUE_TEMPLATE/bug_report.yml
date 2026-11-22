@@ -1,0 +1,46 @@
+name: Bug report
+description: Something checked wrong, crashed, or missed an obvious drift.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Redact URLs, tokens, and payload data before posting.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `sentinel --version`
+    validations:
+      required: true
+  - type: input
+    id: kev
+    attributes:
+      label: Kev checkpoint
+      description: The `--run` value of the Kev server (e.g. `jaredpalmer/kev-0.8b`)
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Command, exit code, and the output you saw.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Minimal config
+      description: The endpoint block from sentinel.yaml, with secrets removed.
+      render: yaml
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I ran `sentinel doctor` and included the result.
+        - label: I searched existing issues.

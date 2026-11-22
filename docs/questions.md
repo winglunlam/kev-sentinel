@@ -25,6 +25,21 @@ open-ended ones do not.
    `fail_if: "choice != 'usd'"`. A score question is useful when "how plausible"
    is the judgement: `fail_if: "score < 1.5"`.
 
+## Start from `sentinel init`
+
+`sentinel init` inspects the baseline payload and proposes questions for the
+fields it recognises (currency, publication dates, status, temperatures, long
+text). Read the proposed questions before trusting them:
+
+```bash
+sentinel init jobs-api --url https://example.com/jobs   # prints what it inferred and why
+sentinel suggest jobs-api                               # re-infer later as a YAML block
+```
+
+A proposal is a hypothesis. `sentinel calibrate` is what turns it into a
+measurement, and medium-confidence proposals (marked `(verify)`) should not gate
+anything until the margin is acceptable.
+
 ## Calibration loop
 
 ```bash

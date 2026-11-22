@@ -1,0 +1,30 @@
+name: Question quality
+description: A question scores clean payloads badly, or fails to catch drift.
+labels: ["questions"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Question quality is the ceiling of this tool, so these reports are valuable.
+        Redact payload data; a shape-equivalent example is enough.
+  - type: input
+    id: question
+    attributes:
+      label: Question
+      description: The YAML block from sentinel.yaml
+    validations:
+      required: true
+  - type: textarea
+    id: observations
+    attributes:
+      label: What you measured
+      description: |
+        The clean value, the drifted value, and how you drifted it. `sentinel calibrate`
+        output is ideal.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: checkpoint
+    attributes:
+      label: Kev checkpoint

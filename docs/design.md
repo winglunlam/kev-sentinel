@@ -1,23 +1,41 @@
 # How a check works
 
 ```
- fetch (fixture or URL)
+ init: fetch once ──► infer questions ──► write config ──► record baseline
+                                                              │
+ check: fetch (fixture or URL)                                │
+        │                                                     ▼
+        ├── deterministic rules ◄── baseline fingerprint (paths, types, counts, stats)
         │
-        ▼
- deterministic rules ◄── baseline: schema fingerprint, item count, blank ratio, size
-        │
-        ▼
- build state (sampled payload + endpoint identity)
-        │
-        ▼
- one Kev request: all questions for this endpoint
-        │
-        ▼
- answers → fail_if conditions → pass/fail
+        └── sampled state ──► one Kev request ──► calibrated probabilities
+                                   │
+                                   └── fail_if conditions ──► pass/fail
         │
         ▼
  SQLite snapshot + run row → alert on the pass→fail transition
 ```
+
+## Starting from a payload
+
+`sentinel init` fetches the endpoint once, stores that response as the baseline,
+and runs `sentinel/suggest.py` over the JSON. The inference is heuristic and
+conservative; it only proposes a question when a concrete field makes the
+question meaningful:
+
+| Field pattern | Proposed question |
+|---|---|
+| a currency code field (`currency: USD`) | choice: which currency are the amounts in? |
+| `posted_at`, `published_at`, `created_at`, `updated_at` | yes/no: were these published/updated in 2026? |
+| dates only in metadata (`generated_at`, `checked_at`, `date`) | yes/no: do the dates in this payload fall in 2026? |
+| a top-level or low-cardinality status field | choice: what is the overall status? |
+| temperature fields plus a `units` field | yes/no: are the temperatures in the stated range and unit? |
+| a long-text field (`description`, `summary`, …) | yes/no: do these describe the item, rather than advertising? (jobs/news wordings) |
+
+Every suggestion carries a rationale naming the field and what a silent change
+would look like. Defaults are labelled, medium-confidence suggestions are marked
+`(verify)` in the CLI output, and `sentinel calibrate` is what replaces the
+defaults with measured thresholds. `sentinel suggest` re-runs inference without
+rewriting the config.
 
 ## Two layers, on purpose
 
@@ -82,6 +100,9 @@ an endpoint drift.
   browser rendering are yours.
 - It sees only what the state template shows. A drift in a field you do not
   sample and do not ask about is invisible.
+- Question inference is a starting point. It cannot know that `price` is a
+  subscription price or that `status` means deployment status; a human confirms
+  the proposals in review, and `calibrate` confirms them with numbers.
 - Semantic judgement quality depends on the question and the checkpoint. Always
   run `sentinel chaos` after changing questions; a green check alone only means
   the questions did not object.

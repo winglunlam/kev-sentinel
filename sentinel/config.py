@@ -168,6 +168,12 @@ class Question:
             payload["criteria"] = self.criteria
         return payload
 
+    def spec(self) -> dict[str, Any]:
+        """YAML-friendly form, including the failure condition."""
+        payload = self.request()
+        payload["fail_if"] = self.fail_if.raw
+        return payload
+
 
 @dataclass(frozen=True)
 class EndpointConfig:
@@ -472,9 +478,18 @@ def _parse_question(qid: str, raw: Any, where: str) -> Question:
 
 
 def starter_config(
-    name: str, *, url: str | None = None, fixture: Path | None = None, fixture_ref: str | None = None
+    name: str,
+    *,
+    url: str | None = None,
+    fixture: Path | None = None,
+    fixture_ref: str | None = None,
+    questions: Mapping[str, Any] | None = None,
 ) -> str:
-    """Config text written by `sentinel init` for one endpoint."""
+    """Config text written by `sentinel init` for one endpoint.
+
+    ``questions`` is an ordered mapping of question id to YAML spec. When omitted,
+    the two generic guard questions are used (what `--no-suggest` does).
+    """
     if not url and fixture is None:
         raise ConfigError("init needs --url or --fixture")
     endpoint: dict[str, Any] = {"name": name}
@@ -482,6 +497,26 @@ def starter_config(
         endpoint["url"] = url
     if fixture is not None:
         endpoint["fixture"] = fixture_ref or str(fixture)
+    if questions is not None:
+        endpoint["questions"] = dict(questions)
+        body = yaml.safe_dump(
+            {
+                "version": 1,
+                "sem": {"base_url": "http://127.0.0.1:8009", "model": "kev-latest"},
+                "endpoints": [endpoint],
+            },
+            sort_keys=False,
+            allow_unicode=True,
+            width=100,
+        )
+        header = (
+            "# kev-sentinel config. Commit this file; the snapshot database (.sentinel/) is local.\n"
+            "#\n"
+            "# Questions were inferred from the baseline payload and carry default thresholds.\n"
+            "# Run `sentinel calibrate` to replace them with measured ones, then `sentinel chaos`\n"
+            "# to prove the layers catch the changes you care about.\n\n"
+        )
+        return header + body
     endpoint["questions"] = {
         "expected_content": {
             "type": "noul",

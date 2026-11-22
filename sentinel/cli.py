@@ -21,10 +21,10 @@ from rich.markup import escape
 
 from . import __version__
 from .calibrate import run_calibration
-from .chaos import MUTATIONS, run_chaos
+from .chaos import MUTATIONS, MUTATORS, run_chaos
 from .check import EndpointResult, run_check
-from .config import Config, load_config, starter_config
-from .core.fetch import fetch_endpoint
+from .config import Config, EndpointConfig, load_config, starter_config
+from .core.fetch import fetch_endpoint, synthetic_result
 from .core.fingerprint import fingerprint_result
 from .core.store import Store
 from .errors import BaselineError, ConfigError, KevError, SentinelError
@@ -41,6 +41,7 @@ from .report import (
     render_history,
 )
 from .sem.client import KevClient, probe
+from .suggest import render_suggestions, starter_questions, suggest_questions
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -97,6 +98,19 @@ def _side_effects(config: Config) -> tuple[Store, KevClient | None]:
 # -- commands ---------------------------------------------------------------
 
 
+def _print_suggestions(console: Console, suggestions: Sequence) -> None:
+    if not suggestions:
+        return
+    console.print("\nquestions inferred from the payload:")
+    for item in suggestions:
+        mark = "" if item.confidence == "high" else "  [yellow](verify)[/]"
+        console.print(
+            f"  [bold]{escape(item.qid)}[/] ({item.question.type})  "
+            f"fail_if `{escape(item.question.fail_if.raw)}`{mark}"
+        )
+        console.print(f"    [dim]{escape(item.rationale)}[/]")
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     if not args.url and not args.fixture:
         raise ConfigError("init needs --url and/or --fixture")
@@ -114,32 +128,49 @@ def cmd_init(args: argparse.Namespace) -> int:
         except ValueError:
             fixture_ref = str(fixture.resolve())
 
+    console = _console()
+    probe = EndpointConfig(
+        name=args.name, questions={}, url=args.url, fixture=fixture, method="GET"
+    )
+    result = fetch_endpoint(probe, timeout_s=15.0, live=fixture is None)
+
+    questions = None
+    suggestions = []
+    if args.suggest:
+        questions, suggestions = starter_questions(
+            result.json if result.ok else None, endpoint_name=args.name
+        )
+
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
-        starter_config(args.name, url=args.url, fixture=fixture, fixture_ref=fixture_ref),
+        starter_config(
+            args.name,
+            url=args.url,
+            fixture=fixture,
+            fixture_ref=fixture_ref,
+            questions=questions,
+        ),
         encoding="utf-8",
     )
-    console = _console()
     console.print(f"wrote [bold]{config_path}[/]")
+    _print_suggestions(console, suggestions)
+
+    if result.ok and result.json is None:
+        console.print(
+            "[yellow]the endpoint did not return JSON; add a question set by hand "
+            "or point --fixture at a recorded JSON body[/]"
+        )
+    if not result.ok:
+        console.print(f"[red]could not fetch a baseline:[/] {result.error}")
+        console.print(f"fix the URL, then run `sentinel baseline set {args.name}`")
+        return EXIT_CONFIG
 
     config = load_config(config_path)
-    endpoint = config.endpoint(args.name)
     if args.no_baseline:
         console.print("skipped baseline; run `sentinel baseline set " + args.name + "` when ready")
         return EXIT_OK
 
     with Store.for_home(config.home) as store:
-        result = fetch_endpoint(
-            endpoint,
-            timeout_s=endpoint.timeout_s or config.default_timeout_s,
-            live=fixture is None,
-        )
-        if not result.ok:
-            console.print(f"[red]could not record a baseline:[/] {result.error}")
-            console.print(
-                f"fix the URL, or run `sentinel baseline set {args.name}`, then `sentinel check`"
-            )
-            return EXIT_CONFIG
         snapshot = store.record_snapshot(args.name, result, fingerprint_result(result))
         store.set_baseline(args.name, snapshot.id)
 
@@ -152,6 +183,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     )
     console.print(f"data: [dim]{config.home / 'sentinel.db'}[/]")
     console.print("\nnext:")
+    console.print(f"  sentinel calibrate {args.name}   # replace default thresholds with measured ones")
     console.print(f"  sentinel check {args.name}")
     console.print(f"  sentinel chaos --endpoint {args.name}")
     return EXIT_OK
@@ -320,6 +352,126 @@ def cmd_chaos(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_demo(args: argparse.Namespace) -> int:
+    """One command that proves the whole idea: clean pass, injected drift, who caught it."""
+    config = load_config(args.config)
+    console = _console()
+    relevant = [config.endpoint(name) for name in args.endpoint] if args.endpoint else list(config.endpoints)
+    judge = None if args.no_sem else KevClient(config.sem)
+    store = Store.for_home(config.home)
+    try:
+        console.print("[bold]1. baseline[/]")
+        for endpoint in relevant:
+            if store.baseline(endpoint.name) is not None:
+                continue
+            result = fetch_endpoint(
+                endpoint,
+                timeout_s=endpoint.timeout_s or config.default_timeout_s,
+                live=args.live,
+            )
+            if not result.ok:
+                console.print(f"   [red]{endpoint.name}: {escape(result.error or 'fetch failed')}[/]")
+                return EXIT_CONFIG
+            snapshot = store.record_snapshot(endpoint.name, result, fingerprint_result(result))
+            store.set_baseline(endpoint.name, snapshot.id)
+            console.print(f"   recorded {endpoint.name} ({snapshot.nbytes} bytes)")
+
+        console.print("\n[bold]2. check the clean payloads[/]")
+        results = []
+        for endpoint in relevant:
+            try:
+                results.append(
+                    run_check(
+                        config,
+                        endpoint,
+                        store,
+                        judge,
+                        live=args.live,
+                        run_sem=not args.no_sem,
+                        alerts=False,
+                    )
+                )
+            except BaselineError:
+                continue
+        render_check(console, results)
+        clean_ok = bool(results) and all(result.ok for result in results)
+
+        console.print("\n[bold]3. inject a silent change[/]")
+        if args.no_sem:
+            candidates = ["field-rename", "empty-list", "html-error"]
+        elif args.inject:
+            candidates = [args.inject]
+        else:
+            candidates = ["status-flip", "currency-swap", "unit-swap", "stale-dates", "wrong-entity"]
+
+        preferred = [endpoint for endpoint in relevant if endpoint.name == "status-page"]
+        ordered = preferred + [endpoint for endpoint in relevant if endpoint not in preferred]
+        chosen_endpoint = None
+        chosen_mutation = None
+        for mutation_name in candidates:
+            mutator = MUTATORS[mutation_name]
+            for endpoint in ordered:
+                base = fetch_endpoint(
+                    endpoint,
+                    timeout_s=endpoint.timeout_s or config.default_timeout_s,
+                    live=args.live,
+                )
+                if not base.ok or base.json is None:
+                    continue
+                mutation = mutator.apply(base, {}, mutation_name)
+                mutated = synthetic_result(
+                    endpoint.name,
+                    body=mutation.body,
+                    status=mutation.status,
+                    content_type=mutation.content_type,
+                )
+                changed = (
+                    mutation.status != base.status
+                    or mutation.content_type != base.content_type
+                    or mutated.json != base.json
+                )
+                if changed:
+                    chosen_endpoint, chosen_mutation = endpoint, mutation_name
+                    break
+            if chosen_endpoint is not None:
+                break
+        if chosen_endpoint is None or chosen_mutation is None:
+            console.print("[red]no injector applies to these payloads; pass --inject[/]")
+            return EXIT_FAIL
+
+        chaos_results = run_chaos(
+            config,
+            chosen_endpoint,
+            store,
+            judge,
+            names=[chosen_mutation],
+            live=args.live,
+        )
+        render_chaos(console, chaos_results, sem_enabled=not args.no_sem)
+        result = chaos_results[0]
+        if not result.applicable:
+            console.print("[red]the chosen injector did not change the payload; pass --inject[/]")
+            return EXIT_FAIL
+        caught_by_kev = result.sem_caught
+        caught_by_rules = result.rules_caught
+
+        console.print("")
+        if clean_ok and (caught_by_kev or caught_by_rules):
+            if caught_by_kev and not caught_by_rules:
+                reason = result.sem_reasons[0] if result.sem_reasons else "a semantic question failed"
+                console.print(
+                    f"[green]verdict:[/] schema unchanged; Kev caught it ({escape(reason)})."
+                )
+            else:
+                reason = result.rules_reasons[0] if result.rules_reasons else "a rule failed"
+                console.print(f"[green]verdict:[/] the rules layer caught it ({escape(reason)}).")
+            return EXIT_OK
+        console.print("[red]verdict: the demo did not pass; inspect the tables above[/]")
+        return EXIT_FAIL
+    finally:
+        store.close()
+
+
 def cmd_calibrate(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     console = _console()
@@ -354,6 +506,46 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
             f"\n[yellow]{len(missing)} question(s) have no separation on these injections; "
             "rephrase the question or pick a different signal[/]"
         )
+    return EXIT_OK
+
+
+def cmd_suggest(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    endpoint = config.endpoint(args.endpoint)
+    console = _console()
+    result = fetch_endpoint(
+        endpoint,
+        timeout_s=endpoint.timeout_s or config.default_timeout_s,
+        live=args.live,
+    )
+    payload = result.json if result.ok else None
+    if payload is None:
+        with Store.for_home(config.home) as store:
+            latest = store.latest_snapshot(endpoint.name)
+        if latest is None or not latest.body:
+            raise ConfigError(f"cannot read a payload for {endpoint.name}: {result.error or result.json_error}")
+        try:
+            payload = json.loads(latest.body)
+        except ValueError as exc:
+            raise ConfigError(f"latest snapshot for {endpoint.name} is not JSON: {exc}") from exc
+        console.print(f"[dim]using the latest recorded snapshot from {latest.ts}[/]")
+    suggestions = suggest_questions(payload, endpoint_name=endpoint.name)
+    if args.json:
+        print(json.dumps([item.to_dict() for item in suggestions], indent=2, ensure_ascii=False))
+        return EXIT_OK
+    if not suggestions:
+        console.print(
+            "[yellow]no high-confidence suggestions for this payload shape; "
+            "keep the current questions and add one by hand[/]"
+        )
+        return EXIT_OK
+    _print_suggestions(console, suggestions)
+    console.print("\ncopy into sentinel.yaml:")
+    console.print(escape(render_suggestions(suggestions)), markup=False)
+    console.print(
+        "\n[yellow]defaults, not calibrated:[/] run `sentinel calibrate "
+        f"{endpoint.name}` and keep the thresholds with margin."
+    )
     return EXIT_OK
 
 
@@ -449,6 +641,12 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--fixture", help="recorded response body to use instead of (or with) a URL")
     init.add_argument("--force", action="store_true", help="overwrite an existing config")
     init.add_argument("--no-baseline", action="store_true", help="write the config but do not record a baseline")
+    init.add_argument(
+        "--no-suggest",
+        dest="suggest",
+        action="store_false",
+        help="write the generic guard questions instead of inferring questions from the payload",
+    )
     _add_config(init)
     init.set_defaults(func=cmd_init)
 
@@ -487,6 +685,21 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(chaos)
     _add_config(chaos)
     chaos.set_defaults(func=cmd_chaos)
+
+    demo = sub.add_parser("demo", help="one command: check clean, inject drift, show who caught it")
+    demo.add_argument("--endpoint", action="append", help="endpoint name (repeatable; default: all)")
+    demo.add_argument("--inject", help="mutation to inject (default: the first that applies)")
+    demo.add_argument("--live", action="store_true", help="fetch URLs even when fixtures are configured")
+    demo.add_argument("--no-sem", action="store_true", help="rules only; no Kev server required")
+    _add_config(demo)
+    demo.set_defaults(func=cmd_demo)
+
+    suggest = sub.add_parser("suggest", help="infer questions from an endpoint's payload")
+    suggest.add_argument("endpoint")
+    suggest.add_argument("--live", action="store_true", help="fetch the URL even when a fixture is configured")
+    _add_json(suggest)
+    _add_config(suggest)
+    suggest.set_defaults(func=cmd_suggest)
 
     calibrate = sub.add_parser("calibrate", help="measure clean vs injected drift and suggest thresholds")
     calibrate.add_argument("endpoints", nargs="*", help="endpoint names (default: all)")

@@ -1,6 +1,6 @@
 {
   "meta": {
-    "timestamp": "2026-11-22T13:22:32+00:00",
+    "timestamp": "2026-11-22T13:33:48+00:00",
     "host": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
     "cpu": "arm",
     "python": "3.13.14",
@@ -8,20 +8,20 @@
     "kev_base_url": "http://127.0.0.1:8010",
     "watts": 60.0,
     "price_per_kwh": 0.3,
-    "cases": 51,
+    "cases": 53,
     "repeat": 2
   },
   "results": [
     {
       "backend": "rules only",
-      "positives": 92,
+      "positives": 96,
       "detected": 68,
-      "detection_rate": 0.7391304347826086,
+      "detection_rate": 0.7083333333333334,
       "negatives": 10,
       "false_positives": 0,
       "p50_ms": 0.0,
       "p95_ms": 0.1,
-      "mean_ms": 0.0,
+      "mean_ms": 0.1,
       "missed": [
         "currency-swap",
         "stale-dates",
@@ -33,19 +33,18 @@
     },
     {
       "backend": "kev + rules",
-      "positives": 92,
-      "detected": 82,
-      "detection_rate": 0.8913043478260869,
+      "positives": 96,
+      "detected": 90,
+      "detection_rate": 0.9375,
       "negatives": 10,
       "false_positives": 0,
-      "p50_ms": 126.9,
-      "p95_ms": 2432.7,
-      "mean_ms": 459.6,
+      "p50_ms": 134.7,
+      "p95_ms": 1751.6,
+      "mean_ms": 398.7,
       "missed": [
-        "stale-dates",
         "wrong-entity"
       ],
-      "cost_per_1000": 0.002298
+      "cost_per_1000": 0.001994
     }
   ],
   "outcomes": [
@@ -234,6 +233,20 @@
     {
       "backend": "rules only",
       "endpoint": "pricing-api",
+      "mutation": "stale-dates",
+      "label": 1,
+      "detected": false
+    },
+    {
+      "backend": "rules only",
+      "endpoint": "pricing-api",
+      "mutation": "stale-dates",
+      "label": 1,
+      "detected": false
+    },
+    {
+      "backend": "rules only",
+      "endpoint": "pricing-api",
       "mutation": "currency-swap",
       "label": 1,
       "detected": false
@@ -648,6 +661,20 @@
       "backend": "rules only",
       "endpoint": "status-page",
       "mutation": "wrong-entity",
+      "label": 1,
+      "detected": false
+    },
+    {
+      "backend": "rules only",
+      "endpoint": "status-page",
+      "mutation": "stale-dates",
+      "label": 1,
+      "detected": false
+    },
+    {
+      "backend": "rules only",
+      "endpoint": "status-page",
+      "mutation": "stale-dates",
       "label": 1,
       "detected": false
     },
@@ -948,6 +975,20 @@
     {
       "backend": "kev + rules",
       "endpoint": "pricing-api",
+      "mutation": "stale-dates",
+      "label": 1,
+      "detected": true
+    },
+    {
+      "backend": "kev + rules",
+      "endpoint": "pricing-api",
+      "mutation": "stale-dates",
+      "label": 1,
+      "detected": true
+    },
+    {
+      "backend": "kev + rules",
+      "endpoint": "pricing-api",
       "mutation": "currency-swap",
       "label": 1,
       "detected": true
@@ -1090,14 +1131,14 @@
       "endpoint": "weather-forecast",
       "mutation": "stale-dates",
       "label": 1,
-      "detected": false
+      "detected": true
     },
     {
       "backend": "kev + rules",
       "endpoint": "weather-forecast",
       "mutation": "stale-dates",
       "label": 1,
-      "detected": false
+      "detected": true
     },
     {
       "backend": "kev + rules",
@@ -1230,14 +1271,14 @@
       "endpoint": "news-feed",
       "mutation": "wrong-entity",
       "label": 1,
-      "detected": false
+      "detected": true
     },
     {
       "backend": "kev + rules",
       "endpoint": "news-feed",
       "mutation": "wrong-entity",
       "label": 1,
-      "detected": false
+      "detected": true
     },
     {
       "backend": "kev + rules",
@@ -1364,6 +1405,20 @@
       "mutation": "wrong-entity",
       "label": 1,
       "detected": false
+    },
+    {
+      "backend": "kev + rules",
+      "endpoint": "status-page",
+      "mutation": "stale-dates",
+      "label": 1,
+      "detected": true
+    },
+    {
+      "backend": "kev + rules",
+      "endpoint": "status-page",
+      "mutation": "stale-dates",
+      "label": 1,
+      "detected": true
     },
     {
       "backend": "kev + rules",

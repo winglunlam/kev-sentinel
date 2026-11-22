@@ -51,6 +51,7 @@ def test_choice_and_score_parsing(examples_config):
         "answers": {
             "products_list": {"type": "noul", "noul": 0.9},
             "usd_prices": {"type": "noul", "noul": 0.8},
+            "updated_2026": {"type": "noul", "noul": 0.7},
         }
     }
 
@@ -130,6 +131,7 @@ def test_separate_mode_sends_one_request_per_question():
             "services_list": {"type": "noul", "noul": 0.9},
             "all_operational": {"type": "noul", "noul": 0.9},
             "reporting_outage": {"type": "noul", "noul": 0.1},
+            "dates_2026": {"type": "noul", "noul": 0.8},
         }
         return httpx.Response(200, json={"answers": {qid: values[qid]}})
 
