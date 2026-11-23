@@ -266,6 +266,22 @@ def _html_error(base: FetchResult, opts: dict[str, Any], name: str) -> Mutation:
     return Mutation(spec.name, spec.description, spec.expect, 200, "text/html; charset=utf-8", body)
 
 
+def _stream_silence(base: FetchResult, opts: dict[str, Any], name: str) -> Mutation:
+    """Drop content events, leaving only connection/lifecycle events."""
+    spec = _REGISTRY[name]
+    data = _require_json(base, name)
+    if not isinstance(data, dict) or not isinstance(data.get("events"), list):
+        raise ValueError("stream-silence only applies to event-stream payloads")
+    keep = [
+        event
+        for event in data["events"]
+        if isinstance(event, dict) and event.get("event") in {"connect", "ping", "message_stop"}
+    ]
+    if not keep:
+        raise ValueError("stream-silence needs at least one lifecycle event to keep")
+    return _make(spec, {**{key: value for key, value in data.items() if key != "events"}, "events": keep})
+
+
 def _truncated(base: FetchResult, opts: dict[str, Any], name: str) -> Mutation:
     spec = _REGISTRY[name]
     body = base.body[: max(1, int(len(base.body) * 0.4))]
@@ -279,6 +295,7 @@ def _build_registry() -> dict[str, Mutator]:
         ("currency-swap", "switch currency codes and symbols, same shape", "semantics", _currency_swap),
         ("unit-swap", "convert Celsius values to Fahrenheit, leave the unit label alone", "semantics", _unit_swap),
         ("status-flip", "flip health words to failure states and stretch latencies", "semantics", _status_flip),
+        ("stream-silence", "drop content events, leaving only connection/lifecycle events", "semantics", _stream_silence),
         ("field-rename", "rename the most common string field", "rules", _field_rename),
         ("null-fields", "null every other scalar field", "rules", _null_fields),
         ("empty-list", "keep the schema, empty the record list", "rules", _empty_list),
@@ -373,7 +390,26 @@ def run_chaos(
     results: list[ChaosResult] = []
     for name in selected:
         mutator = _REGISTRY[name]
-        mutation = mutator.apply(base, {"rename": rename or {}}, name)
+        try:
+            mutation = mutator.apply(base, {"rename": rename or {}}, name)
+        except ValueError:
+            results.append(
+                ChaosResult(
+                    endpoint=endpoint.name,
+                    mutation=name,
+                    description=mutator.description,
+                    expected=mutator.expect,
+                    rules_caught=False,
+                    rules_reasons=(),
+                    sem_caught=False,
+                    sem_reasons=(),
+                    sem_error=None,
+                    sem_skipped="injection does not apply to this payload",
+                    detected=False,
+                    applicable=False,
+                )
+            )
+            continue
         mutated = synthetic_result(
             endpoint.name, body=mutation.body, status=mutation.status, content_type=mutation.content_type
         )

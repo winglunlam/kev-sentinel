@@ -235,6 +235,8 @@ Per endpoint:
 | `fixture` | — | recorded body used instead of the URL (examples, CI) |
 | `method` | `GET` | HTTP method |
 | `headers` | `{}` | request headers |
+| `body` | unset | request body; objects/lists are sent as JSON, strings are parsed as JSON when possible |
+| `stream_timeout_s` | `12` | seconds to collect from a `text/event-stream` before stopping |
 | `questions` | required | map of question id → question |
 | `state` | built-in template | placeholders: `{name} {url} {status} {content_type} {payload} {body}` |
 | `allow_extra_fields` | `true` | new fields are a warning, not a failure |
@@ -246,6 +248,35 @@ Per endpoint:
 | `notes` | `""` | free text for humans |
 
 Question types: `noul` (yes/no probability), `choice` (enum), `score` (ordered level). Metrics available in `fail_if`: `p` and `confidence` for choice, `score` and `confidence` for score, `p` for noul. The choice metrics are validated when the config loads.
+
+### POST and streaming endpoints
+
+Many useful endpoints are not GET-JSON. `sentinel init` can send a request body,
+follow redirects, and parse server-sent events:
+
+```bash
+sentinel init bot-builder-agent \
+  --url http://localhost:3000/chat/ \
+  --method POST \
+  --body '{"messages":[{"role":"user","content":"Hello, what can you do?"}]}' \
+  --stream-timeout 20
+```
+
+- `--header 'authorization: Bearer ...'` adds request headers (repeatable).
+- `text/event-stream` responses are parsed into `{"events": [{"event": ..., "data": ...}]}`. That object is what the schema rules fingerprint and what Kev reads, so questions like "does this stream contain a substantive assistant reply?" work on the stream itself.
+- `--stream-timeout` bounds how long a stream is collected: the check stops at that deadline, at 256 KB, or at a `done`/`complete`/`[DONE]` event, whichever comes first.
+- `--text` monitors a plain-text endpoint instead of JSON.
+
+Init refuses to record a baseline from a non-2xx response: a 405 gets a hint to
+retry with `--method POST`. It also refuses a stream that only sends
+connection/keep-alive events, because that baseline would only catch connection
+changes, not agent behaviour. Raise `--stream-timeout`, send the body a real
+client sends, or pass `--allow-handshake-only` if that is genuinely the expected
+response (the meaningless `stream_reply` question is dropped in that case).
+
+`stream_reply` is a presence check: it catches an agent that stops answering
+(reply ≈ 0.62 vs handshake-only ≈ 0.45 on Kev-0.8B in our check), not one that
+answers with the wrong content. Add a domain question for that.
 
 ## How it works
 
@@ -320,7 +351,7 @@ $ sentinel chaos --config examples/sentinel.yaml --endpoint jobs-api
 10/10 applicable mutations detected · 3 caught by semantics only · 2 not applicable
 ```
 
-Injectors: `wrong-entity`, `stale-dates`, `currency-swap`, `unit-swap`, `status-flip` (semantic-only), plus `field-rename`, `null-fields`, `empty-list`, `string-numbers`, `status-500`, `html-error`, `truncated` (structural). An injector that does not apply to a payload (say, `unit-swap` on a job board) is reported as `n/a` and excluded from the assertion.
+Injectors: `wrong-entity`, `stale-dates`, `currency-swap`, `unit-swap`, `status-flip`, `stream-silence` (semantic-only), plus `field-rename`, `null-fields`, `empty-list`, `string-numbers`, `status-500`, `html-error`, `truncated` (structural). An injector that does not apply to a payload (say, `unit-swap` on a job board) is reported as `n/a` and excluded from the assertion.
 
 Use `--assert` in CI: it exits nonzero if any failure class goes undetected across the configured endpoints. A row that is applicable but undetected is a gap for that endpoint — add a question that covers it, or accept it explicitly.
 
@@ -434,7 +465,7 @@ Issues and pull requests are welcome. If you publish a "built with Kev" tool, te
 ```bash
 uv sync --extra dev
 uv run ruff check .           # lint
-uv run pytest                 # 85 tests, no weights or network
+uv run pytest                 # 95 tests, no weights or network
 make check                    # rules-only check over the example fixtures
 make demo                     # requires a Kev server on :8009
 make demo-offline             # the same story, rules layer only

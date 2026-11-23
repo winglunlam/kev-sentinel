@@ -126,7 +126,10 @@ def case_set(config: Config, endpoints: Sequence[EndpointConfig]) -> list[Case]:
         baseline = snapshot_of(endpoint, clean)
         cases.append(Case(endpoint, baseline, clean, 0, "clean"))
         for name, mutator in MUTATORS.items():
-            mutation = mutator.apply(clean, {}, name)
+            try:
+                mutation = mutator.apply(clean, {}, name)
+            except ValueError:
+                continue
             mutated = synthetic_result(
                 endpoint.name,
                 body=mutation.body,

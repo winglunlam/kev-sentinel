@@ -181,7 +181,10 @@ def run_calibration(
     shots: dict[str, list[tuple[str, Answer]]] = {qid: [] for qid in endpoint.questions}
     for name in selected:
         mutator = MUTATORS[name]
-        mutation = mutator.apply(base, {}, name)
+        try:
+            mutation = mutator.apply(base, {}, name)
+        except ValueError:
+            continue
         mutated = synthetic_result(
             endpoint.name, body=mutation.body, status=mutation.status, content_type=mutation.content_type
         )

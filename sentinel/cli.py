@@ -111,6 +111,70 @@ def _print_suggestions(console: Console, suggestions: Sequence) -> None:
         console.print(f"    [dim]{escape(item.rationale)}[/]")
 
 
+def _parse_headers(pairs: Sequence[str]) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    for pair in pairs:
+        if ":" not in pair:
+            raise ConfigError(f"--header expects 'Name: value', got {pair!r}")
+        name, value = pair.split(":", 1)
+        if not name.strip():
+            raise ConfigError(f"--header expects 'Name: value', got {pair!r}")
+        headers[name.strip()] = value.strip()
+    return headers
+
+
+def _parse_body(value: str | None) -> Any:
+    if value is None:
+        return None
+    try:
+        return json.loads(value)
+    except ValueError:
+        return value
+
+
+def _stream_is_only_handshake(payload: Any) -> bool:
+    if not isinstance(payload, dict) or not isinstance(payload.get("events"), list):
+        return False
+    interesting = False
+    for event in payload["events"]:
+        if not isinstance(event, dict):
+            continue
+        data = event.get("data")
+        if isinstance(data, dict):
+            if any(key not in {"connect", "ping", "type"} for key in data):
+                interesting = True
+        elif isinstance(data, str) and data.strip() and data.strip().lower() not in {"true", "ok"}:
+            interesting = True
+    return not interesting
+
+
+def _diagnose_fetch(result, method: str, expect_json: bool) -> tuple[str, str] | None:
+    """Return (problem, hint) when a fetched response is not a usable baseline."""
+    if not result.ok:
+        return f"fetch failed: {result.error}", ""
+    status = result.status or 0
+    if not 200 <= status < 300:
+        hint = ""
+        if status == 405:
+            hint = (
+                f"the endpoint rejected {method}; if it only accepts POST, retry with "
+                "--method POST --body '{\"...\": \"...\"}'"
+            )
+        elif status in (401, 403):
+            hint = "pass credentials with --header 'authorization: Bearer ...'"
+        elif status in (301, 302, 307, 308):
+            hint = "the endpoint redirected; point --url at the final URL"
+        return f"HTTP {status} from {method} {result.endpoint if hasattr(result, 'endpoint') else ''}".strip(), hint
+    if expect_json and result.json is None:
+        content_type = result.content_type or "no content type"
+        hint = (
+            "if this endpoint returns plain text, pass --text; if it needs a JSON body, "
+            "pass --method POST --body '<json>'"
+        )
+        return f"response is not JSON ({content_type}): {result.json_error}", hint
+    return None
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     if not args.url and not args.fixture:
         raise ConfigError("init needs --url and/or --fixture")
@@ -129,17 +193,60 @@ def cmd_init(args: argparse.Namespace) -> int:
             fixture_ref = str(fixture.resolve())
 
     console = _console()
+    method = args.method.upper()
+    headers = _parse_headers(args.header or [])
+    body = _parse_body(args.body)
+    expect_json = not args.text
     probe = EndpointConfig(
-        name=args.name, questions={}, url=args.url, fixture=fixture, method="GET"
+        name=args.name,
+        questions={},
+        url=args.url,
+        fixture=fixture,
+        method=method,
+        headers=headers,
+        body=body,
+        expect_json=expect_json,
+        stream_timeout_s=args.stream_timeout,
     )
     result = fetch_endpoint(probe, timeout_s=15.0, live=fixture is None)
+
+    problem = _diagnose_fetch(result, method, expect_json)
+    if problem is not None:
+        message, hint = problem
+        console.print(f"[red]not recording a baseline for {escape(args.name)}:[/] {escape(message)}")
+        if hint:
+            console.print(f"[yellow]hint:[/] {escape(hint)}")
+        if result.text.strip():
+            snippet = result.text.strip()[:300]
+            console.print(f"[dim]response: {escape(snippet)}[/]")
+        return EXIT_CONFIG
+
+    handshake_only = result.json is not None and _stream_is_only_handshake(result.json)
+    if handshake_only and not args.allow_handshake_only:
+        console.print(
+            "[red]not recording a baseline:[/] the stream contained only connection/keep-alive "
+            f"events within --stream-timeout {args.stream_timeout:g}s. The agent did not answer "
+            "the probe body, so this baseline could only catch connection-level changes."
+        )
+        console.print(
+            "[yellow]hint:[/] raise --stream-timeout, use the --body a real client sends, or pass "
+            "--allow-handshake-only if that is the expected response."
+        )
+        return EXIT_CONFIG
+    if handshake_only:
+        console.print(
+            "[yellow]warning:[/] recording a handshake-only stream because "
+            "--allow-handshake-only was passed; checks will not see agent behaviour."
+        )
 
     questions = None
     suggestions = []
     if args.suggest:
-        questions, suggestions = starter_questions(
-            result.json if result.ok else None, endpoint_name=args.name
-        )
+        questions, suggestions = starter_questions(result.json, endpoint_name=args.name)
+        if handshake_only and args.allow_handshake_only:
+            # A presence question cannot pass against a baseline with no reply.
+            questions.pop("stream_reply", None)
+            suggestions = [item for item in suggestions if item.qid != "stream_reply"]
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(
@@ -149,21 +256,16 @@ def cmd_init(args: argparse.Namespace) -> int:
             fixture=fixture,
             fixture_ref=fixture_ref,
             questions=questions,
+            method=method,
+            body=body,
+            headers=headers,
+            expect_json=expect_json,
+            stream_timeout_s=args.stream_timeout,
         ),
         encoding="utf-8",
     )
     console.print(f"wrote [bold]{config_path}[/]")
     _print_suggestions(console, suggestions)
-
-    if result.ok and result.json is None:
-        console.print(
-            "[yellow]the endpoint did not return JSON; add a question set by hand "
-            "or point --fixture at a recorded JSON body[/]"
-        )
-    if not result.ok:
-        console.print(f"[red]could not fetch a baseline:[/] {result.error}")
-        console.print(f"fix the URL, then run `sentinel baseline set {args.name}`")
-        return EXIT_CONFIG
 
     config = load_config(config_path)
     if args.no_baseline:
@@ -418,7 +520,10 @@ def cmd_demo(args: argparse.Namespace) -> int:
                 )
                 if not base.ok or base.json is None:
                     continue
-                mutation = mutator.apply(base, {}, mutation_name)
+                try:
+                    mutation = mutator.apply(base, {}, mutation_name)
+                except ValueError:
+                    continue
                 mutated = synthetic_result(
                     endpoint.name,
                     body=mutation.body,
@@ -639,6 +744,21 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("name", help="endpoint name, e.g. jobs-api")
     init.add_argument("--url", help="endpoint URL")
     init.add_argument("--fixture", help="recorded response body to use instead of (or with) a URL")
+    init.add_argument("--method", default="GET", help="HTTP method (default: GET)")
+    init.add_argument("--body", help="request body: JSON or plain text")
+    init.add_argument("--header", action="append", default=[], metavar="KEY: VALUE", help="request header (repeatable)")
+    init.add_argument("--text", action="store_true", help="endpoint returns plain text, not JSON")
+    init.add_argument(
+        "--allow-handshake-only",
+        action="store_true",
+        help="record a baseline even if the stream only sent connection/keep-alive events",
+    )
+    init.add_argument(
+        "--stream-timeout",
+        type=float,
+        default=12.0,
+        help="seconds to collect from an event stream before stopping (default: 12)",
+    )
     init.add_argument("--force", action="store_true", help="overwrite an existing config")
     init.add_argument("--no-baseline", action="store_true", help="write the config but do not record a baseline")
     init.add_argument(

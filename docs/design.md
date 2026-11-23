@@ -72,6 +72,11 @@ type, and the payload. Large payloads are sampled (records lists are cut to
 per endpoint with a `state` template; available placeholders are `{name} {url}
 {status} {content_type} {payload} {body}`.
 
+For a `text/event-stream` response, the parsed event list
+(`{"events": [{"event": ..., "data": ...}]}`) is the payload. SSE comment lines
+such as `: ping` are dropped, `data:` values that parse as JSON stay objects, and
+collection stops at `stream_timeout_s`, 256 KB, or a done/complete event.
+
 Sampling is a deliberate trade: 100 records rarely change a judgement, and every
 token is latency. If your endpoint needs full fidelity, raise `sample_records`
 and `max_state_chars` and re-run `calibrate`.
@@ -115,6 +120,9 @@ an endpoint drift.
   the questions did not object.
 - Fixtures are recorded bodies, not mocks. They are for examples and CI; production
   checks should use `--live`.
+- For event streams, the inferred `stream_reply` question detects a missing reply
+  (Kev-0.8B: 0.62 for a reply, 0.45 for a handshake-only stream), not a wrong one.
+  Add an endpoint-specific question about the reply content if that matters.
 - Kev-0.8B is the cheap default and its calibration is narrower than Kev-4B/9B.
   Content-authenticity questions separate less cleanly on it; see the model table
   in the Kev README for what each checkpoint is good at.

@@ -63,6 +63,24 @@ drop it.
 Thresholds are checkpoint-specific. Kev-0.8B, Kev-4B and Kev-9B have different
 calibration temperatures, so re-run `calibrate` when you change `--run`.
 
+## Streaming endpoints
+
+When the response is a `text/event-stream`, the state is the parsed event list.
+The inferred question checks presence ("did the agent reply at all?"). For a chat
+agent you usually want one content question too, for example:
+
+```yaml
+answer_on_topic:
+  type: noul
+  instructions: >
+    Does the assistant reply answer the user's question about building a bot,
+    rather than declining, changing the subject, or returning an error?
+  fail_if: "p < 0.6"
+```
+
+`sentinel calibrate` cannot invent that judgement for you, but it will tell you
+whether the question separates clean replies from the `stream-silence` injection.
+
 ## Examples
 
 Good:

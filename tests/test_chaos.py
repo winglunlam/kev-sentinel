@@ -25,7 +25,12 @@ def test_every_mutator_runs(config):
     endpoint = config.endpoint("jobs-api")
     base = synthetic_result("jobs-api", body=json.dumps(json.loads(endpoint.fixture.read_text())).encode())
     for name, mutator in MUTATORS.items():
-        mutation = mutator.apply(base, {}, name)
+        try:
+            mutation = mutator.apply(base, {}, name)
+        except ValueError:
+            # stream-silence only applies to event-stream payloads
+            assert name == "stream-silence"
+            continue
         assert mutation.body, name
         if name != "truncated" and mutation.content_type.startswith("application/json"):
             json.loads(mutation.body)
@@ -128,3 +133,17 @@ def test_stale_dates_handles_full_iso_timestamps(examples_config):
     mutated = json.loads(mutation.body)
     assert "2019" in json.dumps(mutated)
     assert mutated != json.loads(base.body)
+
+
+def test_stream_silence_drops_content_events():
+    payload = {
+        "events": [
+            {"event": "connect", "data": {"connect": True}},
+            {"event": "text", "data": {"delta": "hello there, here is a reply"}},
+            {"event": "done", "data": {"done": True}},
+        ]
+    }
+    base = synthetic_result("agent", body=json.dumps(payload).encode())
+    mutation = MUTATORS["stream-silence"].apply(base, {}, "stream-silence")
+    mutated = json.loads(mutation.body)
+    assert [event["event"] for event in mutated["events"]] == ["connect"]

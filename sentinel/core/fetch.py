@@ -17,6 +17,8 @@ import httpx
 
 from ..config import EndpointConfig
 
+MAX_STREAM_BYTES = 256 * 1024
+
 
 @dataclass(frozen=True)
 class FetchResult:
@@ -35,6 +37,57 @@ class FetchResult:
     @property
     def size(self) -> int:
         return len(self.body)
+
+
+def parse_sse(text: str) -> list[dict[str, Any]]:
+    """Parse a text/event-stream body into ``[{"event": ..., "data": ...}]``.
+
+    Comment lines (``: ping``) are keep-alives and are dropped. ``data:`` values
+    that parse as JSON are stored as objects; anything else stays a string.
+    """
+    events: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+
+    def flush() -> None:
+        nonlocal current
+        if current is None:
+            return
+        payload = "\n".join(current["data"]).strip()
+        data: Any = payload
+        if payload:
+            try:
+                data = json.loads(payload)
+            except ValueError:
+                data = payload
+        events.append({"event": current["event"], "data": data})
+        current = None
+
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip("\r")
+        if not line.strip():
+            flush()
+            continue
+        if line.startswith(":"):
+            continue
+        if line.startswith("event:"):
+            if current is None:
+                current = {"event": "message", "data": []}
+            current["event"] = line[len("event:"):].strip() or "message"
+        elif line.startswith("data:"):
+            if current is None:
+                current = {"event": "message", "data": []}
+            current["data"].append(line[len("data:"):].lstrip())
+    flush()
+    return events
+
+
+_SSE_DONE = ("event: done", "event: complete", "event: completed", "event: finish",
+             "event: end", "event: message_stop", "data: [DONE]")
+
+
+def _sse_finished(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _SSE_DONE)
 
 
 def _parse_json(text: str) -> tuple[Any | None, str | None]:
@@ -61,7 +114,12 @@ def _result(
         text = body.decode("utf-8", errors="replace")
     except Exception:  # pragma: no cover - decode with errors="replace" cannot fail
         text = ""
-    parsed, json_error = _parse_json(text)
+    if "text/event-stream" in content_type.lower():
+        events = parse_sse(text)
+        parsed = {"events": events} if events else None
+        json_error = None if events else "empty event stream"
+    else:
+        parsed, json_error = _parse_json(text)
     return FetchResult(
         endpoint=endpoint,
         ok=ok,
@@ -130,12 +188,60 @@ def fetch_endpoint(
             source="url",
         )
 
+    headers = dict(endpoint.headers)
+    request_kwargs: dict[str, Any] = {}
+    if endpoint.body is not None:
+        if isinstance(endpoint.body, (dict, list)):
+            request_kwargs["json"] = endpoint.body
+        else:
+            raw_body = str(endpoint.body)
+            try:
+                request_kwargs["json"] = json.loads(raw_body)
+            except ValueError:
+                request_kwargs["content"] = raw_body.encode("utf-8")
+                headers.setdefault("content-type", "text/plain; charset=utf-8")
+
+    stream_timeout = endpoint.stream_timeout_s or timeout_s
+    # POST bodies are usually calls that stream or generate; the read timeout is
+    # the stream budget so a quiet event stream does not hold a check open for the
+    # full connect timeout. Plain GETs keep the normal read timeout.
+    read_timeout = stream_timeout if (endpoint.body is not None or endpoint.method != "GET") else timeout_s
+    client_timeout = httpx.Timeout(
+        connect=timeout_s, read=max(0.5, read_timeout), write=timeout_s, pool=timeout_s
+    )
     try:
         with httpx.Client(
-            timeout=timeout_s, follow_redirects=True, transport=transport
+            timeout=client_timeout, follow_redirects=True, transport=transport
         ) as client:
-            response = client.request(endpoint.method, endpoint.url, headers=dict(endpoint.headers))
-        body = response.content
+            with client.stream(
+                endpoint.method, endpoint.url, headers=headers, **request_kwargs
+            ) as response:
+                content_type = response.headers.get("content-type", "")
+                if "text/event-stream" in content_type.lower():
+                    # A chat stream can stay open indefinitely. Read until the
+                    # stream completes, the byte cap is hit, or the deadline passes,
+                    # and keep whatever events arrived.
+                    deadline = time.monotonic() + stream_timeout
+                    chunks: list[bytes] = []
+                    total = 0
+                    try:
+                        for chunk in response.iter_bytes():
+                            chunks.append(chunk)
+                            total += len(chunk)
+                            if total >= MAX_STREAM_BYTES:
+                                break
+                            if time.monotonic() >= deadline:
+                                break
+                            if _sse_finished(b"".join(chunks).decode("utf-8", errors="replace")):
+                                break
+                    except httpx.TimeoutException:
+                        # An open SSE stream can go quiet (keep-alive interval longer
+                        # than the read timeout). Keep the events collected so far.
+                        if not chunks:
+                            raise
+                    body = b"".join(chunks)
+                else:
+                    body = response.read()
         elapsed = int((time.perf_counter() - started) * 1000)
         return _result(
             endpoint.name,

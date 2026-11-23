@@ -48,6 +48,7 @@ _NOUNS = {
     "articles": ("articles", "article"),
     "products": ("products", "product"),
     "services": ("services", "service"),
+    "events": ("events", "event"),
     "forecast": ("forecast days", "forecast day"),
     "items": ("items", "item"),
     "results": ("results", "result"),
@@ -459,6 +460,27 @@ def _temperature_suggestion(value: Any, fields: dict[str, list[Any]]) -> list[Su
     ]
 
 
+def stream_suggestion(value: Any) -> list[Suggestion]:
+    """A question for event streams: did the agent actually reply?"""
+    if not isinstance(value, dict) or not isinstance(value.get("events"), list):
+        return []
+    return [
+        _question(
+            "stream_reply",
+            "noul",
+            "Does this stream contain a substantive assistant reply, rather than only "
+            "connection, keep-alive, or error events?",
+            "p < 0.55",
+            rationale=(
+                "The response is an event stream. A real reply produces content events; a "
+                "connection-only stream, a crashed agent, or an upstream error does not."
+            ),
+            field="events",
+            confidence="medium",
+        )
+    ]
+
+
 def suggest_questions(value: Any, *, endpoint_name: str) -> list[Suggestion]:
     """Propose questions for a JSON payload, most specific first."""
     records_path, records = find_records(value)
@@ -473,6 +495,7 @@ def suggest_questions(value: Any, *, endpoint_name: str) -> list[Suggestion]:
     suggestions.extend(_status_suggestion(value, fields))
     suggestions.extend(_temperature_suggestion(value, fields))
     suggestions.extend(_freshness_suggestion(value, has_publish_date=bool(date_suggestions)))
+    suggestions.extend(stream_suggestion(value))
     domain = _detect_domain(value) or _domain_from_name(endpoint_name)
     suggestions.extend(_text_suggestion(fields, nouns, domain))
 

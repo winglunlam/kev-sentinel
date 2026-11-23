@@ -49,7 +49,9 @@ _ENDPOINT_KEYS = {
     "url",
     "method",
     "headers",
+    "body",
     "fixture",
+    "stream_timeout_s",
     "questions",
     "state",
     "notes",
@@ -182,7 +184,9 @@ class EndpointConfig:
     url: str | None = None
     method: str = "GET"
     headers: Mapping[str, str] = field(default_factory=dict)
+    body: Any = None
     fixture: Path | None = None
+    stream_timeout_s: float = 12.0
     state: str = DEFAULT_STATE_TEMPLATE
     notes: str = ""
     allow_extra_fields: bool = True
@@ -398,6 +402,10 @@ def _parse_endpoint(
     ):
         raise ConfigError(f"{where}.headers: expected a mapping of string to string")
 
+    body = raw.get("body")
+    if body is not None and not isinstance(body, (str, int, float, bool, dict, list)):
+        raise ConfigError(f"{where}.body: expected a string, number, boolean, object, or list")
+
     state = raw.get("state", default_state)
     _validate_template(state, f"{where}.state")
     state = _as_str(state, f"{where}.state", allow_empty=True)
@@ -423,6 +431,9 @@ def _parse_endpoint(
     timeout = raw.get("timeout_s")
     if timeout is not None and (not isinstance(timeout, (int, float)) or timeout <= 0):
         raise ConfigError(f"{where}.timeout_s must be a positive number")
+    stream_timeout = raw.get("stream_timeout_s", 12.0)
+    if not isinstance(stream_timeout, (int, float)) or stream_timeout <= 0:
+        raise ConfigError(f"{where}.stream_timeout_s must be a positive number")
 
     questions_raw = raw.get("questions")
     if not isinstance(questions_raw, Mapping) or not questions_raw:
@@ -441,6 +452,7 @@ def _parse_endpoint(
         url=url,
         method=method,
         headers=dict(headers),
+        body=body,
         fixture=fixture,
         state=state,
         notes=notes,
@@ -450,6 +462,7 @@ def _parse_endpoint(
         min_items=min_items,
         count_floor=float(count_floor),
         timeout_s=float(timeout) if timeout is not None else None,
+        stream_timeout_s=float(stream_timeout),
     )
 
 
@@ -484,6 +497,11 @@ def starter_config(
     fixture: Path | None = None,
     fixture_ref: str | None = None,
     questions: Mapping[str, Any] | None = None,
+    method: str = "GET",
+    body: Any = None,
+    headers: Mapping[str, str] | None = None,
+    expect_json: bool = True,
+    stream_timeout_s: float = 12.0,
 ) -> str:
     """Config text written by `sentinel init` for one endpoint.
 
@@ -497,6 +515,16 @@ def starter_config(
         endpoint["url"] = url
     if fixture is not None:
         endpoint["fixture"] = fixture_ref or str(fixture)
+    if method.upper() != "GET":
+        endpoint["method"] = method.upper()
+    if headers:
+        endpoint["headers"] = dict(headers)
+    if body is not None:
+        endpoint["body"] = body
+    if not expect_json:
+        endpoint["expect_json"] = False
+    if stream_timeout_s != 12.0:
+        endpoint["stream_timeout_s"] = stream_timeout_s
     if questions is not None:
         endpoint["questions"] = dict(questions)
         body = yaml.safe_dump(
