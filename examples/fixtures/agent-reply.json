@@ -1,0 +1,21 @@
+{
+  "id": "chatcmpl-8f2a",
+  "object": "chat.completion",
+  "created": 1763900000,
+  "model": "support-agent-v3",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "To build your first bot, create a free account at platform.example.com, then open the Bot Builder and choose a template. Connect your LLM provider key under Settings > Models, test the bot in the Preview tab, and publish it when the test conversation looks right."
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 42,
+    "completion_tokens": 64,
+    "total_tokens": 106
+  }
+}

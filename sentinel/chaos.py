@@ -266,6 +266,43 @@ def _html_error(base: FetchResult, opts: dict[str, Any], name: str) -> Mutation:
     return Mutation(spec.name, spec.description, spec.expect, 200, "text/html; charset=utf-8", body)
 
 
+REFUSAL_TEXT = (
+    "I'm sorry, but I can't help with that request. This is outside what I'm able "
+    "to assist with right now, so please contact support if you need something else."
+)
+
+
+def _refusal(base: FetchResult, opts: dict[str, Any], name: str) -> Mutation:
+    """Replace long text values with a refusal, padded to the same length."""
+    spec = _REGISTRY[name]
+    data = _require_json(base, name)
+    changed = {"n": 0}
+
+    def substitute(value: str) -> str:
+        repeats = (len(value) // len(REFUSAL_TEXT)) + 1
+        return (REFUSAL_TEXT * repeats)[: len(value)]
+
+    def walk(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {key: walk(child) for key, child in node.items()}
+        if isinstance(node, list):
+            return [walk(item) for item in node]
+        if (
+            isinstance(node, str)
+            and len(node) >= 40
+            and not node.startswith(("http://", "https://"))
+            and DATE_RE.search(node) is None
+        ):
+            changed["n"] += 1
+            return substitute(node)
+        return node
+
+    result = walk(data)
+    if changed["n"] == 0:
+        raise ValueError("refusal needs at least one long text value")
+    return _make(spec, result)
+
+
 def _price_change(base: FetchResult, opts: dict[str, Any], name: str) -> Mutation:
     """Multiply price/cost values by 1.25, keeping strings as strings."""
     spec = _REGISTRY[name]
@@ -374,6 +411,7 @@ def _build_registry() -> dict[str, Mutator]:
         ("stream-silence", "drop content events, leaving only connection/lifecycle events", "semantics", _stream_silence),
         ("scale-series", "multiply unit-annotated numeric series by 2, keeping the unit label", "semantics", _scale_series),
         ("price-change", "multiply pricing/cost values by 1.25, keeping their shape", "rules", _price_change),
+        ("refusal", "replace long text with a refusal of the same length", "semantics", _refusal),
         ("field-rename", "rename the most common string field", "rules", _field_rename),
         ("null-fields", "null every other scalar field", "rules", _null_fields),
         ("empty-list", "keep the schema, empty the record list", "rules", _empty_list),

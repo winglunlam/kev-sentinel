@@ -1,0 +1,53 @@
+# Monitor an LLM support agent for meaning regressions.
+#
+# Shape and HTTP status can stay green while the agent starts refusing, deflecting
+# with boilerplate, or answering a different question. No regex can decide "did it
+# answer?"; these questions are what Kev is for. The fixture is a recorded
+# chat-completion shape (reply text is illustrative); point `url` at your own
+# endpoint for live checks and add the body a real client sends.
+#
+#   sentinel baseline set --config examples/agent-quality.yaml support-agent
+#   sentinel check --config examples/agent-quality.yaml
+#   sentinel chaos --config examples/agent-quality.yaml --endpoint support-agent --inject refusal
+version: 1
+
+sem:
+  base_url: http://127.0.0.1:8009
+  model: kev-latest
+
+endpoints:
+  - name: support-agent
+    fixture: fixtures/agent-reply.json
+    method: POST
+    body:
+      messages:
+        - role: user
+          content: How do I build my first bot?
+    state: |
+      Request:
+      {request}
+
+      Response:
+      {payload}
+    notes: >
+      A support assistant answering "how do I build my first bot?". The silent
+      regressions are a refusal, a generic acknowledgement instead of steps, or an
+      answer to a different question. Schema checks see none of them.
+    questions:
+      answers_question:
+        type: noul
+        instructions: >
+          Does the reply actually answer the user's question about building a bot,
+          rather than declining, deflecting, or answering something else?
+        fail_if: "p < 0.55"
+      is_refusal:
+        type: noul
+        instructions: >
+          Does the reply refuse the request, or say that it cannot help?
+        fail_if: "p > 0.5"
+      on_topic:
+        type: noul
+        instructions: >
+          Is the reply about building a bot, rather than a generic support
+          acknowledgement or a different topic?
+        fail_if: "p < 0.65"

@@ -37,6 +37,14 @@ def payload_text(result: FetchResult, sample_records: int, max_chars: int) -> st
     return rendered
 
 
+def _request_text(endpoint: EndpointConfig) -> str:
+    if endpoint.body is None:
+        return ""
+    if isinstance(endpoint.body, (dict, list)):
+        return json.dumps(endpoint.body, indent=2, ensure_ascii=False)
+    return str(endpoint.body)
+
+
 def build_state(endpoint: EndpointConfig, result: FetchResult, *, sample_records: int, max_chars: int) -> str:
     values = {
         "name": endpoint.name,
@@ -45,6 +53,7 @@ def build_state(endpoint: EndpointConfig, result: FetchResult, *, sample_records
         "content_type": result.content_type or "unknown",
         "payload": payload_text(result, sample_records, max_chars),
         "body": payload_text(result, sample_records, max_chars),
+        "request": _request_text(endpoint),
     }
     try:
         return endpoint.state.format(**values).strip()

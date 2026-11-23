@@ -177,3 +177,57 @@ def test_price_change_bumps_price_strings():
     assert before["data"][0]["pricing"]["prompt"] != after["data"][0]["pricing"]["prompt"]
     assert isinstance(after["data"][0]["pricing"]["prompt"], str)
     assert len(after["data"]) == len(before["data"])
+
+
+def test_refusal_preserves_shape_and_changes_text(examples_config):
+    import json
+
+    from .conftest import EXAMPLES
+
+    base = synthetic_result(
+        "agent", body=(EXAMPLES / "fixtures" / "agent-reply.json").read_bytes()
+    )
+    mutation = MUTATORS["refusal"].apply(base, {}, "refusal")
+    before = json.loads(base.body)
+    after = json.loads(mutation.body)
+    content_before = before["choices"][0]["message"]["content"]
+    content_after = after["choices"][0]["message"]["content"]
+    assert content_before != content_after
+    assert len(content_after) == len(content_before)
+    assert "can't help" in content_after
+    from sentinel.core.fingerprint import compare_fingerprints, fingerprint
+
+    assert not compare_fingerprints(fingerprint(before), fingerprint(after)).breaking
+
+
+def test_refusal_is_only_caught_by_semantics(openmeteo_config):
+    from sentinel.config import load_config
+    from sentinel.core.store import Store
+
+    config_path = openmeteo_config.path.parent / "agent-quality.yaml"
+    config = load_config(config_path)
+    endpoint = config.endpoint("support-agent")
+    store = Store.for_home(config.home)
+    try:
+        data = json.loads(endpoint.fixture.read_text())
+        from sentinel.core.fingerprint import fingerprint_result
+
+        result = synthetic_result("support-agent", body=json.dumps(data).encode())
+        snapshot = store.record_snapshot("support-agent", result, fingerprint_result(result))
+        store.set_baseline("support-agent", snapshot.id)
+
+        def judge_fn(qid, state):
+            refused = "can't help" in state
+            if qid == "is_refusal":
+                return noul(qid, 0.9 if refused else 0.1)
+            if qid == "answers_question":
+                return noul(qid, 0.2 if refused else 0.85)
+            return noul(qid, 0.4 if refused else 0.8)
+
+        results = run_chaos(config, endpoint, store, FakeJudge(fn=judge_fn), names=["refusal"])
+        result = results[0]
+        assert result.rules_caught is False
+        assert result.sem_caught is True
+        assert result.detected is True
+    finally:
+        store.close()

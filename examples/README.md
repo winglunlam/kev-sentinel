@@ -13,6 +13,7 @@ names are fictional.
 | `status-page` | service status | `ok` flips to `outage`, `operational` to `down` |
 | `open-meteo` | forecast with parallel arrays + `*_units` (recorded Open-Meteo response) | Celsius values relabelled as Fahrenheit, or a numeric scale regression |
 | `llm-prices` | OpenRouter model catalogue (recorded, 24 models) | any per-token price change, compared exactly by model id |
+| `agent-quality` | recorded chat completion from a support assistant | the reply becomes a refusal, boilerplate, or off-topic; Kev only, rules pass |
 
 ## One-command demo
 
@@ -46,6 +47,23 @@ sentinel calibrate --config examples/sentinel.yaml
 ```
 
 If your server is elsewhere, export `SENTINEL_KEV_BASE_URL=http://host:port`.
+
+## Support-agent quality (Kev is the point)
+
+`examples/agent-quality.yaml` monitors a chat completion endpoint for meaning
+regressions that keep the HTTP status, schema and shape intact: refusals,
+generic acknowledgements, answers to the wrong question.
+
+```bash
+sentinel baseline set --config examples/agent-quality.yaml support-agent
+sentinel check --config examples/agent-quality.yaml
+sentinel chaos --config examples/agent-quality.yaml --endpoint support-agent --inject refusal
+```
+
+The recorded fixture is a normal chat-completion payload; the reply text is
+illustrative. Replace `fixture:` with `url:` and adjust the request `body` to
+monitor your own agent. The `state` template includes `{request}` so the model
+sees what was asked as well as what came back.
 
 ## OpenRouter LLM prices (exact watch, no Kev needed)
 

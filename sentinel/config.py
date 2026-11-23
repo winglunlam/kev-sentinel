@@ -22,7 +22,7 @@ from .sem.types import Answer
 CONFIG_NAMES = ("sentinel.yaml", "sentinel.yml")
 DATA_DIR_NAME = ".sentinel"
 
-STATE_PLACEHOLDERS = frozenset({"name", "url", "status", "content_type", "payload", "body"})
+STATE_PLACEHOLDERS = frozenset({"name", "url", "status", "content_type", "payload", "body", "request"})
 
 DEFAULT_STATE_TEMPLATE = """Endpoint: {name}
 URL: {url}

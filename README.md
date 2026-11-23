@@ -116,6 +116,63 @@ Then run `sentinel calibrate --config ...` to measure the threshold, and
 `sentinel chaos --inject price-change` to prove the watch layer catches the exact
 case that matters. Full example: [examples/llm-prices.yaml](examples/llm-prices.yaml).
 
+## Where Kev is essential: LLM answer quality
+
+Price watching is deterministic on purpose. This is the failure it cannot cover: an LLM support agent that starts refusing, deflecting with boilerplate, or answering a different question. HTTP status, schema, token counts and event shape can all stay identical.
+
+[examples/agent-quality.yaml](examples/agent-quality.yaml) asks three questions about a recorded chat completion:
+
+```yaml
+questions:
+  answers_question:
+    type: noul
+    instructions: >
+      Does the reply actually answer the user's question about building a bot,
+      rather than declining, deflecting, or answering something else?
+    fail_if: "p < 0.55"
+  is_refusal:
+    type: noul
+    instructions: Does the reply refuse the request, or say that it cannot help?
+    fail_if: "p > 0.5"
+  on_topic:
+    type: noul
+    instructions: >
+      Is the reply about building a bot, rather than a generic support
+      acknowledgement or a different topic?
+    fail_if: "p < 0.65"
+```
+
+Clean:
+
+```console
+✓ support-agent  200  635 ms  fixture
+   ✓ rules  HTTP 200 (expected 200)
+   ✓ sem    answers_question: p(true)=0.86
+   ✓ sem    is_refusal: p(true)=0.14
+   ✓ sem    on_topic: p(true)=0.76
+```
+
+After `sentinel chaos --inject refusal` (the reply text is replaced by a refusal of the same length, so the rules layer still passes):
+
+```console
+✗ support-agent  200  1 ms  fixture
+   ✓ rules  HTTP 200 (expected 200)
+   ✗ sem    answers_question: p(true)=0.25 fails `p < 0.55`
+   ✗ sem    is_refusal: p(true)=0.88 fails `p > 0.5`
+   ✗ sem    on_topic: p(true)=0.51 fails `p < 0.65`
+```
+
+Same cron, webhook and CI plumbing as the price example, with one addition: the Kev server has to be running.
+
+### Where this fits in the real world
+
+- **Third-party content feeds** — a marketplace, job board or news API that keeps its schema but starts serving spam, boilerplate, or another resource. You can describe "these are still listings"; you cannot enumerate every way they stop being listings.
+- **LLM and agent canaries** — hourly probe prompts against staging or production: does the assistant still answer, refuse less, stay on topic, include the required step? Model or prompt swaps often pass every structural check.
+- **Vendor document semantics** — does the feed still contain the coverage limit, the invoice total, the cancellation terms? The document is valid JSON either way.
+- **Label and data pipelines** — ask the same question per row ("does this review express a complaint?") and compare the answer distribution to the baseline when a labelling vendor or prompt changes.
+
+The rule of thumb: **if you can write the exact assertion, use `watch`; the model is for the failures you can only describe.** The rest of this README is about making those judgements cheap, calibrated and falsifiable.
+
 ## Why this exists
 
 Schema checks and API monitors answer the wrong question. They tell you the endpoint is up and the shape is right. They cannot tell you that:
@@ -554,7 +611,7 @@ Issues and pull requests are welcome. If you publish a "built with Kev" tool, te
 ```bash
 uv sync --extra dev
 uv run ruff check .           # lint
-uv run pytest                 # 112 tests, no weights or network
+uv run pytest                 # 115 tests, no weights or network
 make check                    # rules-only check over the example fixtures
 make demo                     # requires a Kev server on :8009
 make demo-offline             # the same story, rules layer only

@@ -265,3 +265,17 @@ def test_init_refuses_handshake_only_streams(tmp_path, monkeypatch, capsys, chat
         assert "stream_reply" not in load_config(config).endpoint("bot-builder-agent").questions
     finally:
         monkeypatch.setattr(_ChatServer, "handshake_only", False)
+
+
+def test_request_body_is_available_to_the_state(examples_config):
+    from sentinel.core.fetch import synthetic_result
+    from sentinel.core.state import build_state
+
+    config_path = examples_config.path.parent / "agent-quality.yaml"
+    config = load_config(config_path)
+    endpoint = config.endpoint("support-agent")
+    data = endpoint.fixture.read_bytes()
+    result = synthetic_result("support-agent", body=data)
+    state = build_state(endpoint, result, sample_records=config.sample_records, max_chars=config.max_state_chars)
+    assert "How do I build my first bot?" in state
+    assert "To build your first bot" in state

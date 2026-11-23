@@ -91,7 +91,9 @@ The default template includes the endpoint name, URL, HTTP status and content
 type, and the payload. Large payloads are sampled (records lists are cut to
 `sample_records`, then the whole text is cut to `max_state_chars`). Override it
 per endpoint with a `state` template; available placeholders are `{name} {url}
-{status} {content_type} {payload} {body}`.
+{status} {content_type} {payload} {body} {request}`. `{request}` is the configured
+request body, which matters for judging an answer ("did it answer what was
+asked?") as well as a payload.
 
 For a `text/event-stream` response, the parsed event list
 (`{"events": [{"event": ..., "data": ...}]}`) is the payload. SSE comment lines
