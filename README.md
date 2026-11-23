@@ -15,6 +15,34 @@ kev-sentinel checks APIs and scrapers for two kinds of change: the ones a schema
 - **Falsifiable.** `sentinel chaos` injects silent changes and prints which layer catches each one. `sentinel demo` does the whole story in one command.
 - **CI-native.** Exit codes, JSON output, GitHub step summaries, and a composite action.
 
+**Contents:** [Try it in 60 seconds](#try-it-in-60-seconds) · [Price watch](#start-here-watch-llm-model-prices) · [Kev checks](#where-kev-is-essential-llm-answer-quality) · [Install](#install) · [Configuration](#configuration-reference) · [CLI](#commands) · [Calibration](#calibration) · [Benchmark](#benchmark) · [Docs](#where-this-fits-in-the-real-world)
+
+## Try it in 60 seconds
+
+No model, no API key, no network beyond the recorded fixture:
+
+```bash
+git clone https://github.com/<your-org>/kev-sentinel   # replace <your-org> with your fork
+cd kev-sentinel
+uv sync --extra dev
+uv run sentinel baseline set --config examples/llm-prices.yaml openrouter-models
+uv run sentinel check --config examples/llm-prices.yaml
+```
+
+```console
+✓ openrouter-models  200  1 ms  fixture
+   ✓ rules  HTTP 200 (expected 200)
+   – sem   skipped: no semantic questions configured
+
+1/1 endpoint(s) ok
+```
+
+That is an exact-value watch over 24 recorded LLM prices; change one and the check
+fails. The next two sections show the same tool on a live price feed and on the
+model-based checks it exists for.
+
+### What a semantic check looks like
+
 ```
 ✓ status-page  200  86 ms
    ✓ rules  schema unchanged · 5 items (baseline 5)
@@ -173,7 +201,32 @@ After `sentinel chaos --inject refusal` (the reply text is replaced by a refusal
    ✗ sem    on_topic: p(true)=0.51 fails `p < 0.65`
 ```
 
-Same cron, webhook and CI plumbing as the price example, with one addition: the Kev server has to be running.
+### Run the Kev checks on a schedule
+
+The plumbing is the same as the price example, with one addition: Kev has to be
+running, as a service (systemd, launchd, a terminal you leave open, or a small
+container). `sentinel check` only talks to it over HTTP:
+
+```bash
+# keep the model server up (or run this under your service manager)
+cd /path/to/kev && uv run --extra serve python -m kev.serve --run jaredpalmer/kev-0.8b --port 8009
+
+# hourly in cron
+17 * * * * cd /path/to/kev-sentinel && \
+  SENTINEL_KEV_BASE_URL=http://127.0.0.1:8009 \
+  .venv/bin/sentinel check --config examples/agent-quality.yaml >> /tmp/agent-quality.log 2>&1
+```
+
+Export `SENTINEL_WEBHOOK_URL` (or set `webhook_url` in the config) and failures
+open a Slack/Teams/Opsgenie incident on the pass→fail transition only. Exit code
+1 is also what CI uses, so the same command can gate a deploy.
+
+The price example needs no server at all:
+
+```cron
+17 * * * * cd /path/to/kev-sentinel && \
+  .venv/bin/sentinel check --config examples/llm-prices.yaml --live >> /tmp/llm-prices.log 2>&1
+```
 
 ### Where this fits in the real world
 
@@ -266,11 +319,17 @@ Kev-0.8B is the cheapest default: it fits a 4 GB GPU (an L4 is enough) or any Ap
 ### 2. Install kev-sentinel
 
 ```bash
-git clone <your-org>/kev-sentinel
+git clone <your-org>/kev-sentinel     # replace <your-org> with your fork
 cd kev-sentinel
 uv sync --extra dev
-uv run sentinel check --config examples/sentinel.yaml
+
+# semantic example: needs the Kev server from step 1
+uv run sentinel baseline set --config examples/agent-quality.yaml support-agent
+uv run sentinel check --config examples/agent-quality.yaml
 ```
+
+For a quick check without Kev:
+`uv run sentinel baseline set --config examples/llm-prices.yaml openrouter-models && uv run sentinel check --config examples/llm-prices.yaml`.
 
 Or install it as a tool:
 
@@ -395,7 +454,7 @@ Per endpoint:
 | `stream_timeout_s` | `12` | seconds to collect from a `text/event-stream` before stopping |
 | `watch` | unset | exact-value watch over selected fields: `{key, fields, tolerance, report_removed}`; see [examples/llm-prices.yaml](examples/llm-prices.yaml) |
 | `questions` | required unless `watch` is set | map of question id → question; `{}` makes a deterministic, Kev-free endpoint |
-| `state` | built-in template | placeholders: `{name} {url} {status} {content_type} {payload} {body}` |
+| `state` | built-in template | placeholders: `{name} {url} {status} {content_type} {payload} {body} {request}` |
 | `allow_extra_fields` | `true` | new fields are a warning, not a failure |
 | `expected_status` | `200` | required status code |
 | `expect_json` | `true` | parse and fingerprint the body as JSON |
@@ -514,12 +573,12 @@ Use `--assert` in CI: it exits nonzero if any failure class goes undetected acro
 
 ## Benchmark
 
-Measured 2026-11-22 on an Apple M1 (16 GB) with `jaredpalmer/kev-0.8b` served via MLX, Python 3.13, over the five example payloads. 48 drift cases, each run twice (96 drift runs) and 5 clean payloads, each run twice (10 clean runs).
+Measured 2026-11-23 on an Apple M1 (16 GB) with `jaredpalmer/kev-0.8b` served via MLX, Python 3.13, over the five example payloads. 50 drift cases, each run twice (100 drift runs) and 5 clean payloads, each run twice (10 clean runs).
 
 | Backend | Detection | False positives | p50 per check | p95 per check | Mean | Cost / 1,000 checks |
 |---|---|---|---|---|---|---|
-| rules only | 68/96 (71%) | 0/10 | 0.0 ms | 0.1 ms | 0.1 ms | $0 |
-| Kev-0.8B + rules | 90/96 (94%) | 0/10 | 134.7 ms | 1751.6 ms | 398.7 ms | $0.002 |
+| rules only | 68/100 (68%) | 0/10 | 0.0 ms | 0.2 ms | 0.1 ms | $0 |
+| Kev-0.8B + rules | 94/100 (94%) | 0/10 | 134.8 ms | 1183.4 ms | 304.1 ms | $0.0015 |
 
 Cost is electricity only (60 W at $0.30/kWh) from the mean latency; hardware amortization is excluded. A cloud comparison is not published because a fair one needs the provider's current prices — [`bench/judge_openai.py`](bench/judge_openai.py) is a ready adapter for any OpenAI-compatible endpoint, and `bench/bench.py --judge-cmd` runs it over the same labelled set.
 
@@ -534,8 +593,8 @@ recalibrated for it ([bench/configs/kev-0.5b.yaml](bench/configs/kev-0.5b.yaml))
 
 | Checkpoint | Detection | False positives | p50 per check | Mean | Cost / 1,000 checks |
 |---|---|---|---|---|---|
-| Kev-0.8B + rules (Qwen3.5, MLX) | **90/96 (94%)** | **0/10** | **134.7 ms** | 398.7 ms | $0.002 |
-| Kev-0.5B + rules (Qwen2.5, torch/MPS) | 84/96 (88%) | 2/10 | 336.8 ms | 286.8 ms | $0.0014 |
+| Kev-0.8B + rules (Qwen3.5, MLX) | **94/100 (94%)** | **0/10** | **134.8 ms** | 304.1 ms | $0.0015 |
+| Kev-0.5B + rules (Qwen2.5, torch/MPS) | 88/100 (88%) | 2/10 | 297.5 ms | 303.9 ms | $0.0015 |
 
 The 0.5B is smaller on disk but worse on every axis that matters here: it misses
 more drift classes, produced two false positives on the clean jobs payload (its
@@ -549,7 +608,7 @@ The merged table lives at [bench/results/model-comparison.md](bench/results/mode
 
 What the numbers mean:
 
-- **Detection**: the rules-only row is the schema-validator baseline; the second row is the full pipeline. Kev adds 22 detections that structural checks cannot make, with no false positives on the clean payloads.
+- **Detection**: the rules-only row is the schema-validator baseline; the second row is the full pipeline. Kev adds 26 detections that structural checks cannot make, with no false positives on the clean payloads.
 - **Latency** varies with state length and prefix-cache hits. p50 is the typical warm check; p95 covers long payloads whose state was not in the cache.
 - **Cost** is dominated by hardware you already own; the electricity estimate is included to make the comparison with per-token APIs concrete.
 
@@ -557,7 +616,7 @@ Reproduce:
 
 ```bash
 # with a Kev server running
-uv run python bench/bench.py --config examples/sentinel.yaml --repeats 2 \
+uv run python bench/bench.py --config examples/sentinel.yaml --label kev-0.8b --repeats 2 \
   --json bench/results/kev-0.8b.json --markdown bench/results/kev-0.8b.md
 ```
 

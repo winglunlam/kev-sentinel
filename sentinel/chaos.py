@@ -48,6 +48,7 @@ class Mutator:
     description: str
     expect: str
     apply: Callable[[FetchResult, dict[str, Any], str], "Mutation"]
+    requires_watch: bool = False
 
 
 def _require_json(base: FetchResult, name: str) -> Any:
@@ -410,7 +411,7 @@ def _build_registry() -> dict[str, Mutator]:
         ("status-flip", "flip health words to failure states and stretch latencies", "semantics", _status_flip),
         ("stream-silence", "drop content events, leaving only connection/lifecycle events", "semantics", _stream_silence),
         ("scale-series", "multiply unit-annotated numeric series by 2, keeping the unit label", "semantics", _scale_series),
-        ("price-change", "multiply pricing/cost values by 1.25, keeping their shape", "rules", _price_change),
+        ("price-change", "multiply pricing/cost values by 1.25, keeping their shape", "rules", _price_change, True),
         ("refusal", "replace long text with a refusal of the same length", "semantics", _refusal),
         ("field-rename", "rename the most common string field", "rules", _field_rename),
         ("null-fields", "null every other scalar field", "rules", _null_fields),
@@ -420,7 +421,11 @@ def _build_registry() -> dict[str, Mutator]:
         ("html-error", "return an HTML captcha page with HTTP 200", "rules", _html_error),
         ("truncated", "cut the body to 40%", "rules", _truncated),
     ]
-    return {name: Mutator(name, description, expect, apply) for name, description, expect, apply in rows}
+    return {
+        name: Mutator(name, description, expect, apply, requires_watch)
+        for name, description, expect, apply, *rest in rows
+        for requires_watch in [bool(rest[0]) if rest else False]
+    }
 
 
 _REGISTRY = _build_registry()
@@ -506,6 +511,24 @@ def run_chaos(
     results: list[ChaosResult] = []
     for name in selected:
         mutator = _REGISTRY[name]
+        if mutator.requires_watch and endpoint.watch is None:
+            results.append(
+                ChaosResult(
+                    endpoint=endpoint.name,
+                    mutation=name,
+                    description=mutator.description,
+                    expected=mutator.expect,
+                    rules_caught=False,
+                    rules_reasons=(),
+                    sem_caught=False,
+                    sem_reasons=(),
+                    sem_error=None,
+                    sem_skipped="injection needs a watch block on this endpoint",
+                    detected=False,
+                    applicable=False,
+                )
+            )
+            continue
         try:
             mutation = mutator.apply(base, {"rename": rename or {}}, name)
         except ValueError:

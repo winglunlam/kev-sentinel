@@ -126,6 +126,8 @@ def case_set(config: Config, endpoints: Sequence[EndpointConfig]) -> list[Case]:
         baseline = snapshot_of(endpoint, clean)
         cases.append(Case(endpoint, baseline, clean, 0, "clean"))
         for name, mutator in MUTATORS.items():
+            if mutator.requires_watch and endpoint.watch is None:
+                continue
             try:
                 mutation = mutator.apply(clean, {}, name)
             except ValueError:

@@ -15,7 +15,7 @@ For each example endpoint:
   (`n/a` in `sentinel chaos`, excluded here too).
 
 The set is rebuilt from scratch on every run, so it cannot go stale. It is small
-(48 drift cases, 5 clean payloads) and that is intentional: it is a regression
+(50 drift cases, 5 clean payloads) and that is intentional: it is a regression
 harness for the example config, not a product benchmark.
 
 ## Backends

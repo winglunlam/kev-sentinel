@@ -1,29 +1,31 @@
 {
   "meta": {
-    "timestamp": "2026-11-22T13:33:48+00:00",
+    "timestamp": "2026-11-23T14:03:50+00:00",
     "host": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
     "cpu": "arm",
     "python": "3.13.14",
     "model": "kev-latest",
-    "kev_base_url": "http://127.0.0.1:8010",
+    "label": "kev-0.8b",
+    "kev_base_url": "http://127.0.0.1:8009",
     "watts": 60.0,
     "price_per_kwh": 0.3,
-    "cases": 53,
+    "cases": 55,
     "repeat": 2
   },
   "results": [
     {
       "backend": "rules only",
-      "positives": 96,
+      "positives": 100,
       "detected": 68,
-      "detection_rate": 0.7083333333333334,
+      "detection_rate": 0.68,
       "negatives": 10,
       "false_positives": 0,
       "p50_ms": 0.0,
-      "p95_ms": 0.1,
+      "p95_ms": 0.2,
       "mean_ms": 0.1,
       "missed": [
         "currency-swap",
+        "refusal",
         "stale-dates",
         "status-flip",
         "unit-swap",
@@ -33,18 +35,18 @@
     },
     {
       "backend": "kev + rules",
-      "positives": 96,
-      "detected": 90,
-      "detection_rate": 0.9375,
+      "positives": 100,
+      "detected": 94,
+      "detection_rate": 0.94,
       "negatives": 10,
       "false_positives": 0,
-      "p50_ms": 134.7,
-      "p95_ms": 1751.6,
-      "mean_ms": 398.7,
+      "p50_ms": 134.8,
+      "p95_ms": 1183.4,
+      "mean_ms": 304.1,
       "missed": [
         "wrong-entity"
       ],
-      "cost_per_1000": 0.001994
+      "cost_per_1000": 0.001521
     }
   ],
   "outcomes": [
@@ -107,6 +109,20 @@
     {
       "backend": "rules only",
       "endpoint": "jobs-api",
+      "mutation": "refusal",
+      "label": 1,
+      "detected": false
+    },
+    {
+      "backend": "rules only",
+      "endpoint": "jobs-api",
+      "mutation": "refusal",
+      "label": 1,
+      "detected": false
+    },
+    {
+      "backend": "rules only",
+      "endpoint": "jobs-api",
       "mutation": "field-rename",
       "label": 1,
       "detected": true
@@ -549,6 +565,20 @@
       "backend": "rules only",
       "endpoint": "news-feed",
       "mutation": "stale-dates",
+      "label": 1,
+      "detected": false
+    },
+    {
+      "backend": "rules only",
+      "endpoint": "news-feed",
+      "mutation": "refusal",
+      "label": 1,
+      "detected": false
+    },
+    {
+      "backend": "rules only",
+      "endpoint": "news-feed",
+      "mutation": "refusal",
       "label": 1,
       "detected": false
     },
@@ -849,6 +879,20 @@
     {
       "backend": "kev + rules",
       "endpoint": "jobs-api",
+      "mutation": "refusal",
+      "label": 1,
+      "detected": true
+    },
+    {
+      "backend": "kev + rules",
+      "endpoint": "jobs-api",
+      "mutation": "refusal",
+      "label": 1,
+      "detected": true
+    },
+    {
+      "backend": "kev + rules",
+      "endpoint": "jobs-api",
       "mutation": "field-rename",
       "label": 1,
       "detected": true
@@ -1291,6 +1335,20 @@
       "backend": "kev + rules",
       "endpoint": "news-feed",
       "mutation": "stale-dates",
+      "label": 1,
+      "detected": true
+    },
+    {
+      "backend": "kev + rules",
+      "endpoint": "news-feed",
+      "mutation": "refusal",
+      "label": 1,
+      "detected": true
+    },
+    {
+      "backend": "kev + rules",
+      "endpoint": "news-feed",
+      "mutation": "refusal",
       "label": 1,
       "detected": true
     },

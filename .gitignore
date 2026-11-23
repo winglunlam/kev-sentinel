@@ -1,14 +1,42 @@
+# Python
 __pycache__/
 *.py[cod]
 .venv/
-.sentinel/
-.pytest_cache/
-.ruff_cache/
-dist/
 build/
+dist/
 *.egg-info/
-.DS_Store
+.coverage
+htmlcov/
+
+# local state and recorded responses
+.sentinel/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
 runs/
 bench/runs/
+
+# model and package caches
 .hf-cache/
 .uv-cache/
+.pytest_cache/
+.ruff_cache/
+
+# secrets and local config
+.env
+.env.*
+!.env.example
+*.pem
+.netrc
+sentinel.local.yaml
+*.local.yaml
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.log
