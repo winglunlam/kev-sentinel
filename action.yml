@@ -25,9 +25,9 @@ inputs:
     required: false
     default: "false"
   install:
-    description: "Path or package spec passed to `uv tool install --from`"
+    description: "Package spec for `uv tool install --from`; defaults to this action's checkout, or pass `kev-sentinel` after it is published"
     required: false
-    default: "."
+    default: ""
 runs:
   using: "composite"
   steps:
@@ -36,9 +36,12 @@ runs:
         enable-cache: true
     - name: Install kev-sentinel
       shell: bash
-      run: uv tool install --force --from "${INSTALL_SPEC}" kev-sentinel
       env:
         INSTALL_SPEC: ${{ inputs.install }}
+      run: |
+        spec="${INSTALL_SPEC:-${GITHUB_ACTION_PATH}}"
+        uv tool install --force --from "$spec" kev-sentinel
+        sentinel --version
     - name: sentinel check
       shell: bash
       env:

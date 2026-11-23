@@ -471,8 +471,8 @@ Many useful endpoints are not GET-JSON. `sentinel init` can send a request body,
 follow redirects, and parse server-sent events:
 
 ```bash
-sentinel init bot-builder-agent \
-  --url http://localhost:3000/chat/ \
+sentinel init my-agent \
+  --url http://localhost:8000/chat/ \
   --method POST \
   --body '{"messages":[{"role":"user","content":"Hello, what can you do?"}]}' \
   --stream-timeout 20

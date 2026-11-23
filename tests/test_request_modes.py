@@ -86,7 +86,7 @@ def test_config_round_trips_request_shape(tmp_path):
 version: 1
 endpoints:
   - name: chat
-    url: http://localhost:3000/chat/
+    url: http://localhost:9999/chat/
     method: POST
     stream_timeout_s: 20
     headers:
@@ -112,7 +112,7 @@ endpoints:
 def test_starter_config_writes_post_shape(tmp_path):
     text = starter_config(
         "chat",
-        url="http://localhost:3000/chat/",
+        url="http://localhost:9999/chat/",
         method="POST",
         body={"messages": [{"role": "user", "content": "hi"}]},
         headers={"authorization": "Bearer t"},
@@ -129,7 +129,7 @@ def test_starter_config_writes_post_shape(tmp_path):
 
 def test_stream_payload_gets_a_reply_question():
     payload = {"events": [{"event": "connect", "data": {"connect": True}}]}
-    suggestions = suggest_questions(payload, endpoint_name="bot-builder-agent")
+    suggestions = suggest_questions(payload, endpoint_name="chat-agent")
     assert [item.qid for item in suggestions] == ["stream_reply"]
     assert "assistant reply" in suggestions[0].question.instructions
 
@@ -185,7 +185,7 @@ def test_init_refuses_to_baseline_a_405(tmp_path, monkeypatch, capsys, chat_serv
         cli.main(
             [
                 "init",
-                "bot-builder-agent",
+                "chat-agent",
                 "--url",
                 chat_server,
                 "--config",
@@ -208,7 +208,7 @@ def test_init_posts_and_baselines_an_sse_endpoint(tmp_path, monkeypatch, capsys,
         cli.main(
             [
                 "init",
-                "bot-builder-agent",
+                "chat-agent",
                 "--url",
                 chat_server,
                 "--method",
@@ -226,7 +226,7 @@ def test_init_posts_and_baselines_an_sse_endpoint(tmp_path, monkeypatch, capsys,
     output = capsys.readouterr().out
     assert "handshake" not in output
     assert config.exists()
-    endpoint = load_config(config).endpoint("bot-builder-agent")
+    endpoint = load_config(config).endpoint("chat-agent")
     assert endpoint.method == "POST"
     assert endpoint.body["messages"][0]["content"] == "hi"
     assert endpoint.stream_timeout_s == 2.0
@@ -239,7 +239,7 @@ def test_init_refuses_handshake_only_streams(tmp_path, monkeypatch, capsys, chat
     monkeypatch.setattr(_ChatServer, "handshake_only", True)
     args = [
         "init",
-        "bot-builder-agent",
+        "chat-agent",
         "--url",
         chat_server,
         "--method",
@@ -262,7 +262,7 @@ def test_init_refuses_handshake_only_streams(tmp_path, monkeypatch, capsys, chat
         output = capsys.readouterr().out
         assert "handshake-only stream" in output
         assert config.exists()
-        assert "stream_reply" not in load_config(config).endpoint("bot-builder-agent").questions
+        assert "stream_reply" not in load_config(config).endpoint("chat-agent").questions
     finally:
         monkeypatch.setattr(_ChatServer, "handshake_only", False)
 
