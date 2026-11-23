@@ -115,6 +115,9 @@ def test_baseline_show_and_set(tmp_path, monkeypatch, capsys):
     assert cli.main(["baseline", "show", "jobs-api"]) == 0
     out = capsys.readouterr().out
     assert "jobs-api" in out and "sha256" in out
+    assert cli.main(["baseline", "show"]) == 0
+    out = capsys.readouterr().out
+    assert "baselines" in out and "jobs-api" in out
 
 
 def test_demo_rules_only(tmp_path, monkeypatch, capsys):

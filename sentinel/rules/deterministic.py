@@ -206,6 +206,20 @@ def run_rules(endpoint: EndpointConfig, result: FetchResult, baseline: Snapshot)
         ]
 
     findings: list[Finding] = []
+    if (
+        baseline.source in {"fixture", "url"}
+        and result.source in {"fixture", "url"}
+        and baseline.source != result.source
+    ):
+        findings.append(
+            Finding(
+                "baseline-source",
+                True,
+                "warn",
+                f"baseline came from a {baseline.source} but this check used a {result.source}; "
+                "differences may be artifacts of sampling or redirects, not drift",
+            )
+        )
     findings.append(
         Finding(
             "transport",

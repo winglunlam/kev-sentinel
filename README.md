@@ -30,6 +30,17 @@ kev-sentinel checks APIs and scrapers for two kinds of change: the ones a schema
 
 Every field, every type, and the record count are unchanged. The status page now reports an outage, and the schema layer cannot tell.
 
+## Kev is the engine; this repo is the contract around it
+
+Kev answers questions about one payload. It does not know the baseline, which
+fields must be exact, what to ask, what probability should alert, whether the
+checks catch drift, or how to run unattended. Those are the parts this repo adds:
+a recorded baseline, a rules layer for what is exact, question inference and
+review, calibrated thresholds, chaos-style coverage tests, alerts, history and
+CI ergonomics. [docs/why-not-just-kev.md](docs/why-not-just-kev.md) has the
+side-by-side comparison, including when a 20-line script around Kev is the right
+answer.
+
 ## Start here: watch LLM model prices
 
 Providers change model prices; your cost spreadsheet, router config or budget alert does not notice. This example is complete and runs against a public endpoint. It needs **no model**: prices are exact values, so a `watch` block compares them. Use Kev questions on the same endpoint when the failure is a judgement call rather than a number.
@@ -452,7 +463,7 @@ Snapshots and run history live in `.sentinel/sentinel.db` next to the config (gi
 | `sentinel suggest NAME` | print inferred questions as a YAML block (does not edit the config) |
 | `sentinel demo` | baseline, clean check, injected drift, verdict — the 10-second demo |
 | `sentinel baseline set NAME...` | fetch endpoints and record new baselines |
-| `sentinel baseline show NAME` | print the baseline's timestamp, size, schema path count, hash |
+| `sentinel baseline show [NAME]` | print one baseline in detail, or list every baseline when NAME is omitted |
 | `sentinel check [NAME...]` | run rules and Kev against the baselines |
 | `sentinel chaos [--endpoint NAME] [--inject NAME]` | inject silent changes and report which layer catches each |
 | `sentinel calibrate [NAME...]` | measure clean vs drifted scores, suggest `fail_if` thresholds |
@@ -611,7 +622,7 @@ Issues and pull requests are welcome. If you publish a "built with Kev" tool, te
 ```bash
 uv sync --extra dev
 uv run ruff check .           # lint
-uv run pytest                 # 115 tests, no weights or network
+uv run pytest                 # 117 tests, no weights or network
 make check                    # rules-only check over the example fixtures
 make demo                     # requires a Kev server on :8009
 make demo-offline             # the same story, rules layer only

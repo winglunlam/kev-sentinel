@@ -128,6 +128,11 @@ def test_starter_config_round_trips(tmp_path):
     assert set(endpoint.questions) == {"expected_content", "error_page"}
 
 
+def test_unknown_endpoint_suggests_a_close_match(config):
+    with pytest.raises(ConfigError, match="did you mean 'jobs-api'"):
+        config.endpoint("jobs-ap")
+
+
 def test_missing_baseline_raises(config, config_dir):
     store = Store.for_home(config.home)
     try:

@@ -173,3 +173,34 @@ def test_watch_change_is_caught(openmeteo_config):
         assert any(baseline_price in detail for detail in blocked[0].details)
     finally:
         store.close()
+
+
+def test_fixture_baseline_against_live_fetch_warns(config):
+    import dataclasses
+    import json
+
+    from sentinel.core.fetch import synthetic_result
+    from sentinel.core.fingerprint import fingerprint_result
+    from sentinel.core.store import Store
+
+    store = Store.for_home(config.home)
+    try:
+        endpoint = config.endpoint("jobs-api")
+        data = json.loads(endpoint.fixture.read_text())
+        baseline_result = dataclasses.replace(
+            synthetic_result("jobs-api", body=json.dumps(data).encode()), source="fixture"
+        )
+        snapshot = store.record_snapshot(
+            "jobs-api", baseline_result, fingerprint_result(baseline_result)
+        )
+        store.set_baseline("jobs-api", snapshot.id)
+        baseline = store.baseline("jobs-api")
+        live = dataclasses.replace(
+            synthetic_result("jobs-api", body=json.dumps(data).encode()), source="url"
+        )
+        findings = run_rules(endpoint, live, baseline)
+        warning = next(finding for finding in findings if finding.rule == "baseline-source")
+        assert warning.severity == "warn"
+        assert not warning.blocking
+    finally:
+        store.close()

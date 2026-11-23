@@ -28,7 +28,10 @@ def render_check(console: Console, results: Sequence[EndpointResult], *, verbose
         for finding in result.findings:
             if finding.severity == "info" and not verbose:
                 continue
-            console.print(f"   {_tick(finding.ok)} [dim]rules [/] {escape(finding.message)}")
+            if finding.severity == "warn":
+                console.print(f"   [yellow]![/] [dim]warn  [/] {escape(finding.message)}")
+            else:
+                console.print(f"   {_tick(finding.ok)} [dim]rules [/] {escape(finding.message)}")
             for detail in finding.details:
                 console.print(f"          [dim]{escape(detail)}[/]")
         for item in result.semantic:

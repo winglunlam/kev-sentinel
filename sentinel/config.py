@@ -7,6 +7,7 @@ the file a team reviews in a pull request.
 
 from __future__ import annotations
 
+import difflib
 import os
 import re
 from dataclasses import dataclass, field
@@ -241,8 +242,12 @@ class Config:
         for endpoint in self.endpoints:
             if endpoint.name == name:
                 return endpoint
-        names = ", ".join(endpoint.name for endpoint in self.endpoints) or "(none)"
-        raise ConfigError(f"unknown endpoint {name!r}; configured: {names}")
+        names = [endpoint.name for endpoint in self.endpoints]
+        suggestion = difflib.get_close_matches(name, names, n=1, cutoff=0.6)
+        hint = f"; did you mean {suggestion[0]!r}?" if suggestion else ""
+        raise ConfigError(
+            f"unknown endpoint {name!r}{hint}; configured: {', '.join(names) or '(none)'}"
+        )
 
 
 def find_config(explicit: str | Path | None = None) -> Path:
@@ -262,7 +267,8 @@ def find_config(explicit: str | Path | None = None) -> Path:
             if candidate.is_file():
                 return candidate.resolve()
     raise ConfigError(
-        f"no {CONFIG_NAMES[0]} found in {cwd} or its parents; run `sentinel init` first"
+        f"no {CONFIG_NAMES[0]} found in {cwd} or its parents; run `sentinel init` first "
+        "or pass --config PATH"
     )
 
 

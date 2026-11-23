@@ -283,7 +283,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         f"{fingerprint.get('item_count') if fingerprint.get('item_count') is not None else '—'} items, "
         f"{snapshot.nbytes} bytes, {paths} schema paths ({snapshot.source})"
     )
-    console.print(f"data: [dim]{config.home / 'sentinel.db'}[/]")
+    console.print(f"config: [dim]{config.path}[/]")
+    console.print(f"data:   [dim]{config.home / 'sentinel.db'}[/]")
     console.print("\nnext:")
     console.print(f"  sentinel calibrate {args.name}   # replace default thresholds with measured ones")
     console.print(f"  sentinel check {args.name}")
@@ -311,21 +312,28 @@ def cmd_baseline_set(args: argparse.Namespace) -> int:
                 f"{snapshot.fingerprint.get('item_count') if snapshot.fingerprint.get('item_count') is not None else '—'} items, "
                 f"{snapshot.nbytes} bytes ({snapshot.source})"
             )
+        console.print(f"config: [dim]{config.path}[/]")
+        console.print(f"data:   [dim]{config.home / 'sentinel.db'}[/]")
     return EXIT_OK
 
 
 def cmd_baseline_show(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    endpoint = config.endpoint(args.endpoint)
+    console = _console()
     with Store.for_home(config.home) as store:
+        if args.endpoint is None:
+            console.print(f"config [bold]{escape(str(config.path))}[/]")
+            console.print(f"data   [dim]{config.home / 'sentinel.db'}[/]")
+            render_baselines(console, _baseline_entries(config, store))
+            return EXIT_OK
+        endpoint = config.endpoint(args.endpoint)
         baseline = store.baseline(endpoint.name)
         set_at = store.baseline_set_at(endpoint.name)
-    console = _console()
     if baseline is None:
-        console.print(f"[red]no baseline for {endpoint.name}[/]")
+        console.print(f"[red]no baseline for {escape(endpoint.name)}[/]")
         return EXIT_CONFIG
     fingerprint = baseline.fingerprint
-    console.print(f"endpoint   [bold]{endpoint.name}[/]")
+    console.print(f"endpoint   [bold]{escape(endpoint.name)}[/]")
     console.print(f"set at     {set_at}")
     console.print(
         f"payload    HTTP {baseline.status}, {fingerprint.get('item_count')} items, "
@@ -335,6 +343,10 @@ def cmd_baseline_show(args: argparse.Namespace) -> int:
     console.print(f"sha256     {baseline.sha256}")
     records_path = fingerprint.get("records_path")
     console.print(f"records    {records_path if records_path is not None else '—'}")
+    if baseline.fingerprint.get("watch"):
+        console.print(f"watched    {len(baseline.fingerprint['watch'])} exact values")
+    console.print(f"config     {config.path}")
+    console.print(f"data       {config.home / 'sentinel.db'}")
     return EXIT_OK
 
 
@@ -778,7 +790,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_config(bset)
     bset.set_defaults(func=cmd_baseline_set)
     bshow = baseline_sub.add_parser("show", help="show the current baseline")
-    bshow.add_argument("endpoint")
+    bshow.add_argument("endpoint", nargs="?", help="endpoint name (omit to list all baselines)")
     _add_config(bshow)
     bshow.set_defaults(func=cmd_baseline_show)
 
