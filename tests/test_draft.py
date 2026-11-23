@@ -92,6 +92,8 @@ def test_init_llm_draft(tmp_path, monkeypatch, draft_provider, capsys):
     sent = _DraftProvider.requests[0]
     assert sent["model"] == "fake-model"
     assert "job" in sent["messages"][1]["content"].lower()
+    assert "untrusted" in sent["messages"][1]["content"].lower()
+    assert "untrusted" in sent["messages"][0]["content"].lower()
 
 
 def test_init_llm_draft_rejects_bad_model_output(tmp_path, monkeypatch, draft_provider, capsys):
