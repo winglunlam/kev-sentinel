@@ -1,0 +1,19 @@
+name: status
+title: Service status pages
+description: >
+  For status and health endpoints. The schema is identical whether the system is
+  healthy or down; only the meaning changes.
+questions:
+  services_present:
+    type: noul
+    instructions: >
+      Does this payload report a list of services or components with a status?
+    fail_if: "p < 0.6"
+  all_operational:
+    type: noul
+    instructions: Are all of the reported services operational?
+    fail_if: "p < 0.55"
+  reporting_outage:
+    type: noul
+    instructions: Is the system currently reporting an outage or major degradation?
+    fail_if: "p > 0.4"

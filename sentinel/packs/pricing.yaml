@@ -1,0 +1,22 @@
+name: pricing
+title: Price and currency feeds
+description: >
+  For pricing, billing or catalogue feeds. A currency or unit switch keeps every
+  key and type and changes what the numbers mean.
+questions:
+  catalogue_present:
+    type: noul
+    instructions: >
+      Does this payload contain individual products or line items, each with a
+      name and a price or amount?
+    fail_if: "p < 0.6"
+  currency_usd:
+    type: noul
+    instructions: Are the amounts in US dollars?
+    fail_if: "p < 0.7"
+  prices_plausible:
+    type: noul
+    instructions: >
+      Are the amounts plausible retail prices or charges, rather than corrupted,
+      zeroed, or scaled values?
+    fail_if: "p < 0.5"

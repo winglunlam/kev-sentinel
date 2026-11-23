@@ -203,6 +203,7 @@ def render_doctor(console: Console, *, config_path: str, home: str, kev: dict | 
     table = Table(title="endpoints")
     table.add_column("endpoint", no_wrap=True)
     table.add_column("baseline", no_wrap=True)
+    table.add_column("age (d)", justify="right", no_wrap=True)
     table.add_column("questions")
     table.add_column("source")
     for entry in endpoints:
@@ -219,6 +220,7 @@ def render_preflight(console: Console, report) -> None:
     table = Table(title="preflight: is this config safe to schedule?", show_lines=False)
     table.add_column("endpoint", no_wrap=True)
     table.add_column("baseline", no_wrap=True)
+    table.add_column("age (d)", justify="right", no_wrap=True)
     table.add_column("clean", no_wrap=True)
     table.add_column("proven", justify="right", no_wrap=True)
     table.add_column("weak", justify="right", no_wrap=True)
@@ -227,6 +229,9 @@ def render_preflight(console: Console, report) -> None:
         table.add_row(
             escape(item.endpoint),
             "[green]ok[/]" if item.baseline else "[red]missing[/]",
+            f"[yellow]{item.baseline_age_days:g}[/]" if item.stale_baseline else (
+                f"{item.baseline_age_days:g}" if item.baseline_age_days is not None else "—"
+            ),
             "[green]ok[/]" if item.clean else "[red]FAIL[/]",
             str(len(item.proven_questions)),
             f"[yellow]{len(item.weak_questions)}[/]" if item.weak_questions else "0",
@@ -236,6 +241,11 @@ def render_preflight(console: Console, report) -> None:
     for item in report.endpoints:
         for qid, margin in item.weak_questions:
             console.print(f"  [yellow]weak[/] {escape(item.endpoint)}/{escape(qid)} margin {margin:.2f} < 0.15")
+        if item.stale_baseline:
+            console.print(
+                f"  [yellow]stale baseline[/] {escape(item.endpoint)}: "
+                f"{item.baseline_age_days:g} days old; re-baseline deliberately if the change was intended"
+            )
         for qid in item.unproven_questions:
             console.print(f"  [dim]unproven[/] {escape(item.endpoint)}/{escape(qid)}: no matching injection")
     if report.missed_rules:

@@ -15,7 +15,7 @@ from .conftest import EXAMPLES
 
 def test_pack_list_and_load():
     names = {pack.name for pack in list_packs()}
-    assert {"agent", "listings", "news"} <= names
+    assert {"agent", "documents", "listings", "news", "pricing", "status", "weather"} <= names
 
     agent = load_pack("agent")
     assert agent.title == "LLM answer quality"

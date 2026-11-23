@@ -53,9 +53,11 @@ def find_records(value: Any) -> tuple[str | None, list[Any] | None]:
         for key, child in candidates:
             if child and any(isinstance(item, dict) for item in child):
                 return key, child
-        if candidates:
-            key, child = max(candidates, key=lambda pair: len(pair[1]))
-            return key, child
+        # An empty record list is still a record list: that is how "list went
+        # empty" is detected. A list of scalars (tags, ids) is not.
+        empty = [(key, child) for key, child in candidates if not child]
+        if empty:
+            return empty[0]
     return None, None
 
 

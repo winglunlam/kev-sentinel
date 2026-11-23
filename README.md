@@ -131,6 +131,14 @@ uv run sentinel baseline set --config sentinel.yaml
 uv run sentinel preflight --config sentinel.yaml
 ```
 
+Add `--fetch` (and `--api-header` for auth) to call each endpoint once and infer
+from the live response instead of the spec examples:
+
+```bash
+uv run sentinel import openapi https://api.example.com/openapi.json --fetch \
+  --api-header 'authorization: Bearer …' --out sentinel.yaml
+```
+
 Example responses in the spec produce payload-inferred questions and exact
 watches (`pricing.prompt`, `price`, …). Operations with only a schema produce
 schema-derived questions (dates, numeric ranges, currency). Operations whose path
@@ -148,6 +156,24 @@ uv run sentinel init support-agent --url https://agent.example.com/chat --pack a
 Packs live in [sentinel/packs/](sentinel/packs/) as YAML and support a `{year}`
 placeholder. Adding one is a YAML file plus a test — see
 [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### LLM-assisted drafting (optional)
+
+When there is no spec, no matching pack, and the payload inference is too generic,
+ask an OpenAI-compatible model to draft questions. It is opt-in, sends one sample
+payload (no headers or secrets), and validates every returned question with the
+same parser:
+
+```bash
+export SENTINEL_DRAFT_API_KEY=...        # or OPENAI_API_KEY
+export SENTINEL_DRAFT_MODEL=gpt-4o-mini  # optional
+export SENTINEL_DRAFT_BASE_URL=https://api.openai.com/v1   # or a local gateway
+uv run sentinel init support-agent --url https://agent.example.com/chat --llm-draft
+```
+
+Drafts are still drafts: `calibrate`, `chaos` and `preflight` decide whether they
+are worth keeping. Keep exact values in `watch`; use a drafting model only for
+judgement questions.
 
 ### From the payload
 
@@ -178,6 +204,9 @@ separated clean from injected drift with at least a 0.15 margin (weak and
 unproven questions are listed by name), and every chaos injection class was
 caught by some layer. It exits 0 only on GO, and 1 on NO-GO — so you can run it
 as the last CI step before enabling cron.
+
+It also reports a baseline older than `baseline_max_age_days` (default 30) so a
+schedule does not quietly compare against a year-old definition.
 
 That gate is the honest answer to "can I trust inferred questions?": inference
 drafts, calibration measures, chaos proves coverage, and `preflight` refuses to
@@ -330,7 +359,8 @@ After `sentinel chaos --inject refusal` (the reply text is replaced by a refusal
 ### Run it on a schedule
 
 `sentinel schedule` prints a ready-to-paste cron line, systemd unit, GitHub
-Actions job and long-running form for the current config:
+Actions job and long-running form for the current config. Add `--lock` so
+overlapping cron runs are skipped instead of stacking up:
 
 ```console
 $ uv run sentinel schedule --config examples/agent-quality.yaml --every 1h
@@ -711,6 +741,9 @@ uv run python bench/bench.py --config examples/sentinel.yaml --label kev-0.8b --
 
 The committed results are in [`bench/results/`](bench/results); the methodology is in [`bench/README.md`](bench/README.md).
 
+Real-endpoint recipes (Open-Meteo, OpenRouter prices, GitHub status, Wikipedia,
+GitHub metadata) are in [docs/cookbook.md](docs/cookbook.md).
+
 ## CI
 
 Composite action:
@@ -770,7 +803,7 @@ Issues and pull requests are welcome. If you publish a "built with Kev" tool, te
 ```bash
 uv sync --extra dev
 uv run ruff check .           # lint
-uv run pytest                 # 134 tests, no weights or network
+uv run pytest                 # 145 tests, no weights or network
 make check                    # rules-only check over the example fixtures
 make demo                     # requires a Kev server on :8009
 make demo-offline             # the same story, rules layer only

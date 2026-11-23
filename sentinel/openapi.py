@@ -343,6 +343,53 @@ def endpoints_from_spec(
     return endpoints, skipped
 
 
+def enrich_from_live(
+    endpoints: list[ImportedEndpoint],
+    *,
+    headers: dict[str, str] | None = None,
+    timeout: float = 15.0,
+) -> tuple[list[ImportedEndpoint], list[str]]:
+    """Call each endpoint once and replace schema questions with live evidence."""
+    from .config import EndpointConfig
+    from .core.fetch import fetch_endpoint
+
+    notes: list[str] = []
+    for endpoint in endpoints:
+        probe = EndpointConfig(
+            name=endpoint.name,
+            questions={},
+            url=endpoint.url,
+            method=endpoint.method,
+            headers=headers or {},
+            body=endpoint.body,
+        )
+        result = fetch_endpoint(probe, timeout_s=timeout)
+        if not result.ok:
+            notes.append(f"{endpoint.name}: live fetch failed ({result.error})")
+            continue
+        if result.status is None or not 200 <= result.status < 300:
+            notes.append(f"{endpoint.name}: live fetch returned HTTP {result.status}")
+            continue
+        if result.json is None:
+            notes.append(f"{endpoint.name}: live response is not JSON")
+            continue
+        suggestions = suggest_questions(result.json, endpoint_name=endpoint.name)
+        specs = {item.qid: item.question.spec() for item in suggestions}
+        if specs:
+            specs.setdefault("error_page", error_page_question().spec())
+            endpoint.questions = specs
+            endpoint.notes = "questions inferred from a live response"
+        watch = _watch_from_example(result.json)
+        if watch is not None and endpoint.watch is None:
+            endpoint.watch = watch
+        notes.append(
+            f"{endpoint.name}: fetched HTTP {result.status}, "
+            f"{len(specs)} inferred question(s)"
+            + (", watch added" if watch is not None and endpoint.watch == watch else "")
+        )
+    return endpoints, notes
+
+
 def config_yaml(endpoints: list[ImportedEndpoint]) -> str:
     document = {
         "version": 1,

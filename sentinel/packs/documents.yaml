@@ -1,0 +1,22 @@
+name: documents
+title: Documents and reports
+description: >
+  For feeds of documents, filings or reports where the schema stays valid but the
+  content can become stub text, a login wall, or another document type.
+questions:
+  document_present:
+    type: noul
+    instructions: >
+      Does this payload contain an actual document or report body, rather than a
+      stub, an error, or a link-only placeholder?
+    fail_if: "p < 0.6"
+  document_substantive:
+    type: noul
+    instructions: >
+      Does the document body contain substantive content about its stated subject,
+      rather than boilerplate or a generic notice?
+    fail_if: "p < 0.5"
+  dates_current:
+    type: noul
+    instructions: Do the dates in this payload fall in {year}?
+    fail_if: "p < 0.5"

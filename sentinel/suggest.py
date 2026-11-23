@@ -195,7 +195,7 @@ def _currency_suggestion(fields: dict[str, list[Any]]) -> list[Suggestion]:
 
 
 def _date_suggestion(
-    fields: dict[str, list[Any]], nouns: tuple[str, str], endpoint_name: str
+    fields: dict[str, list[Any]], nouns: tuple[str, str], endpoint_name: str, records_path: str | None
 ) -> list[Suggestion]:
     candidates: list[tuple[int, str, int, list[str]]] = []
     for key, values in fields.items():
@@ -218,6 +218,20 @@ def _date_suggestion(
     _, key, year, _ = max(candidates)
     verb = "updated" if "updated" in key.lower() else "published"
     plural, _singular = nouns
+    if not records_path:
+        return [
+            _question(
+                f"dates_{year}",
+                "noul",
+                f"Do the dates in this payload fall in {year}?",
+                "p < 0.5",
+                rationale=(
+                    f"`{key}` is a date field, mostly {year} in the baseline. Stale content keeps "
+                    "the schema, the keys, and the types; only the dates move."
+                ),
+                field=key,
+            )
+        ]
     return [
         _question(
             f"{verb}_{year}",
@@ -527,7 +541,7 @@ def _temperature_suggestion(value: Any, fields: dict[str, list[Any]]) -> list[Su
     temp_field = ""
     for key, values in fields.items():
         lower = key.lower()
-        if not any(token in lower for token in ("temp", "temperature", "_c", "_f")):
+        if "temp" not in lower:
             continue
         numbers = [float(item) for item in values if isinstance(item, (int, float)) and not isinstance(item, bool)]
         if not numbers:
@@ -535,6 +549,11 @@ def _temperature_suggestion(value: Any, fields: dict[str, list[Any]]) -> list[Su
         temp_field = key
         temp_values.extend(numbers)
     if not temp_values:
+        return []
+    # A temperature series should be plausible for Celsius or Fahrenheit. A wide
+    # span means a heuristic matched unrelated numbers; skip rather than ship a
+    # nonsensical question.
+    if max(temp_values) > 150 or min(temp_values) < -150:
         return []
     low = int(min(temp_values) // 5 * 5)
     high = int((max(temp_values) // 5 + 1) * 5)
@@ -600,7 +619,7 @@ def suggest_questions(value: Any, *, endpoint_name: str) -> list[Suggestion]:
 
     suggestions: list[Suggestion] = []
     suggestions.extend(_currency_suggestion(fields))
-    date_suggestions = _date_suggestion(fields, nouns, endpoint_name)
+    date_suggestions = _date_suggestion(fields, nouns, endpoint_name, records_path)
     suggestions.extend(date_suggestions)
     series_suggestions = _series_suggestions(value)
     suggestions.extend(_status_suggestion(value, fields))

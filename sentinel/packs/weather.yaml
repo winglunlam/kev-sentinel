@@ -1,0 +1,18 @@
+name: weather
+title: Weather and sensor feeds
+description: >
+  For weather and measurement APIs. Unit and scale regressions keep the keys,
+  arrays and unit labels.
+questions:
+  forecast_present:
+    type: noul
+    instructions: >
+      Does this payload contain a forecast or measurement series with timestamps
+      and values?
+    fail_if: "p < 0.6"
+  values_plausible:
+    type: noul
+    instructions: >
+      Are the measured values plausible for the stated quantities and units,
+      rather than corrupted or converted from another scale?
+    fail_if: "p < 0.5"

@@ -9,6 +9,6 @@ Two detection layers run against a recorded baseline:
    judgements, one batched request per endpoint, no text generation, no egress.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = ["__version__"]

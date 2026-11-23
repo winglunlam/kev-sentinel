@@ -137,3 +137,25 @@ def test_open_meteo_series_get_unit_range_questions():
     assert "km/h" in suggestions["wind_speed_10m_plausible"].question.instructions
     for item in suggestions.values():
         assert item.question.fail_if.raw.startswith("p <")
+
+
+def test_scalar_lists_and_counts_do_not_create_bogus_questions():
+    from sentinel.core.fingerprint import find_records
+
+    payload = {
+        "id": 1,
+        "name": "kev",
+        "description": "Small decision models you can train and run yourself.",
+        "private": False,
+        "stargazers_count": 12,
+        "forks_count": 3,
+        "open_issues_count": 4,
+        "updated_at": "2026-11-01T00:00:00Z",
+        "license": {"key": "apache-2.0"},
+        "topics": ["ml", "decision-models"],
+    }
+    assert find_records(payload) == (None, None)
+    suggestions = {item.qid: item for item in suggest_questions(payload, endpoint_name="github-repo")}
+    assert "dates_2026" in suggestions
+    assert "Do the dates in this payload fall in 2026?" in suggestions["dates_2026"].question.instructions
+    assert not any("temperatures_plausible" == qid for qid in suggestions)

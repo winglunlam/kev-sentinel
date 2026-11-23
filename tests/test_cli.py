@@ -317,3 +317,22 @@ def test_preflight_json(tmp_path, monkeypatch, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert payload["go"] is True
     assert payload["endpoints"][0]["baseline"] is True
+
+
+def test_preflight_flags_a_stale_baseline(tmp_path, monkeypatch, capsys):
+    import shutil
+    import sqlite3
+
+    from .conftest import EXAMPLES
+
+    target = tmp_path / "examples"
+    shutil.copytree(EXAMPLES, target, ignore=shutil.ignore_patterns(".sentinel"))
+    config = target / "llm-prices.yaml"
+    assert cli.main(["baseline", "set", "--config", str(config), "openrouter-models"]) == 0
+    database = target / ".sentinel" / "sentinel.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("update baselines set set_at = '2020-01-01T00:00:00Z'")
+    capsys.readouterr()
+    assert cli.main(["preflight", "--config", str(config), "--no-sem"]) == 0
+    out = capsys.readouterr().out
+    assert "stale baseline" in out

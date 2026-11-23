@@ -10,6 +10,7 @@ cron job.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Sequence
 
 from .calibrate import WEAK_MARGIN, CalibrationRow, run_calibration
@@ -27,6 +28,8 @@ class EndpointPreflight:
     unproven_questions: tuple[str, ...] = ()
     proven_questions: tuple[str, ...] = ()
     semantic_error: str | None = None
+    baseline_age_days: float | None = None
+    stale_baseline: bool = False
     note: str = ""
 
     def to_dict(self) -> dict:
@@ -40,6 +43,8 @@ class EndpointPreflight:
             "unproven_questions": list(self.unproven_questions),
             "proven_questions": list(self.proven_questions),
             "semantic_error": self.semantic_error,
+            "baseline_age_days": self.baseline_age_days,
+            "stale_baseline": self.stale_baseline,
             "note": self.note,
         }
 
@@ -168,6 +173,19 @@ def run_preflight(
             weak, unproven, proven = _classify_calibration(calibration)
         if result.semantic_error:
             kev_unavailable = True
+        set_at = store.baseline_set_at(endpoint.name)
+        age_days = None
+        if set_at:
+            try:
+                when = datetime.fromisoformat(set_at.replace("Z", "+00:00"))
+                age_days = (datetime.now(timezone.utc) - when).total_seconds() / 86400
+            except ValueError:
+                age_days = None
+        stale = (
+            age_days is not None
+            and config.baseline_max_age_days > 0
+            and age_days > config.baseline_max_age_days
+        )
         chaos: list[ChaosResult] = run_chaos(
             config, endpoint, store, judge if semantic else None, live=live
         )
@@ -181,6 +199,8 @@ def run_preflight(
                 unproven_questions=unproven,
                 proven_questions=proven,
                 semantic_error=result.semantic_error,
+                baseline_age_days=round(age_days, 1) if age_days is not None else None,
+                stale_baseline=stale,
             )
         )
 

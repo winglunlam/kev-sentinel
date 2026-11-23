@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import pytest
 import yaml
 
 import sentinel.cli as cli
@@ -69,3 +73,75 @@ def test_import_limit():
     spec = load_spec(FIXTURE)
     endpoints, _ = endpoints_from_spec(spec, limit=1)
     assert len(endpoints) == 1
+
+
+class _LiveApi(BaseHTTPRequestHandler):
+    paths: list[str] = []
+    headers_seen: list[dict] = []
+
+    def _send(self, status: int, payload: dict) -> None:
+        body = json.dumps(payload).encode()
+        self.send_response(status)
+        self.send_header("content-type", "application/json")
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):  # noqa: N802
+        _LiveApi.paths.append(self.path)
+        _LiveApi.headers_seen.append(dict(self.headers))
+        if self.path == "/prices":
+            self._send(200, {"currency": "EUR", "products": [{"id": "a", "price": 10}, {"id": "b", "price": 12}]})
+        elif self.path == "/weather/berlin":
+            self._send(200, {"city": "Berlin", "generated_at": "2026-11-23T10:00:00Z", "temperature_c": 5})
+        else:
+            self._send(500, {"error": "down"})
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def live_api():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _LiveApi)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+
+
+def test_import_fetch_uses_live_responses(tmp_path, live_api, capsys):
+    _LiveApi.paths.clear()
+    out = tmp_path / "sentinel.yaml"
+    assert cli.main(
+        [
+            "import",
+            "openapi",
+            str(FIXTURE),
+            "--base-url",
+            live_api,
+            "--fetch",
+            "--api-header",
+            "x-test: yes",
+            "--out",
+            str(out),
+        ]
+    ) == 0
+    output = capsys.readouterr().out
+    assert "fetched HTTP 200" in output
+    assert "HTTP 500" in output
+    assert all(any(key.lower() == "x-test" for key in headers) for headers in _LiveApi.headers_seen)
+
+    config = load_config(out)
+    prices = config.endpoint("list-prices")
+    assert "currency" in prices.questions
+    assert prices.questions["currency"].fail_if.raw == "choice != 'eur'"
+    assert prices.watch is not None and prices.watch.key == "id"
+    weather = config.endpoint("get-weather")
+    year = datetime.now(timezone.utc).year
+    assert f"dates_{year}" in weather.questions
+    # the failing endpoint keeps its schema-derived fallback questions
+    assert "error_page" in config.endpoint("health").questions

@@ -20,3 +20,10 @@ jobs:
         run: uv run pytest
       - name: Import check
         run: uv run python -c "import sentinel; print(sentinel.__version__)"
+      - name: CLI smoke
+        run: |
+          uv run sentinel pack list
+          uv run sentinel import openapi tests/fixtures/openapi-catalogue.json --out /tmp/imported.yaml
+          uv run sentinel baseline set --config examples/llm-prices.yaml openrouter-models
+          uv run sentinel check --config examples/llm-prices.yaml
+          uv run sentinel preflight --config examples/llm-prices.yaml --no-sem

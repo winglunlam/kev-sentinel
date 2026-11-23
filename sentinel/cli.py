@@ -29,14 +29,16 @@ from . import __version__
 from .calibrate import WEAK_MARGIN, run_calibration
 from .chaos import MUTATIONS, MUTATORS, run_chaos
 from .check import EndpointResult, run_check
-from .openapi import config_yaml, endpoints_from_spec, load_spec
+from .openapi import config_yaml, endpoints_from_spec, enrich_from_live, load_spec
 from .packs import list_packs, load_pack
 from .preflight import run_preflight
 from .config import Condition, Config, EndpointConfig, load_config, starter_config
+from .draft import draft_from_env
 from .core.fetch import fetch_endpoint, synthetic_result
 from .watch import fingerprint_with_watch
 from .core.store import Store, utcnow
 from .errors import BaselineError, ConfigError, KevError, SentinelError
+from .lock import FileLock
 from .report import (
     calibration_markdown,
     check_markdown,
@@ -251,7 +253,24 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     questions = None
     suggestions = []
-    if args.pack:
+    if args.pack and args.llm_draft:
+        raise ConfigError("choose one question source: --pack or --llm-draft")
+    if args.llm_draft:
+        if result.json is None:
+            raise ConfigError("--llm-draft needs a JSON response to draft from")
+        console.print(
+            f"[yellow]drafting with an LLM:[/] one sample payload will be sent to "
+            f"{escape(os.environ.get('SENTINEL_DRAFT_BASE_URL', 'https://api.openai.com/v1'))}"
+        )
+        questions, used_model = draft_from_env(
+            result.json, endpoint_name=args.name, url=args.url
+        )
+        questions.setdefault("error_page", error_page_question().spec())
+        console.print(
+            f"drafted [bold]{len(questions) - 1}[/] question(s) with {escape(used_model)}; "
+            "review them, then run calibrate/preflight"
+        )
+    elif args.pack:
         try:
             pack = load_pack(args.pack)
         except ValueError as exc:
@@ -765,6 +784,8 @@ def cmd_schedule(args: argparse.Namespace) -> int:
         command += " --live"
     if args.no_sem:
         command += " --no-sem"
+    if args.lock:
+        command += " --lock"
     env = ""
     if config.sem.base_url:
         env = f"SENTINEL_KEV_BASE_URL={shlex.quote(config.sem.base_url)} "
@@ -892,6 +913,13 @@ def cmd_import_openapi(args: argparse.Namespace) -> int:
         endpoints, skipped = endpoints_from_spec(
             spec, base_url=args.base_url, methods=methods, limit=args.limit
         )
+        fetch_notes: list[str] = []
+        if args.fetch:
+            endpoints, fetch_notes = enrich_from_live(
+                endpoints,
+                headers=_parse_headers(args.api_header or []),
+                timeout=args.timeout,
+            )
     except ValueError as exc:
         raise ConfigError(str(exc)) from exc
     if not endpoints:
@@ -913,6 +941,8 @@ def cmd_import_openapi(args: argparse.Namespace) -> int:
                 extras.append("POST body")
             suffix = f"  [dim]({', '.join(extras)})[/]" if extras else ""
             console.print(f"  {escape(endpoint.name)}  {endpoint.method} {escape(endpoint.url)}{suffix}")
+        for note in fetch_notes:
+            console.print(f"  [dim]{escape(note)}[/]")
         if skipped:
             console.print("[yellow]skipped:[/]")
             for warning in skipped:
@@ -920,6 +950,8 @@ def cmd_import_openapi(args: argparse.Namespace) -> int:
         console.print("\nnext: sentinel baseline set --config <file>, then sentinel preflight --config <file>")
     else:
         print(text)
+        for note in fetch_notes:
+            print(f"fetched: {note}", file=sys.stderr)
         for warning in skipped:
             print(f"skipped: {warning}", file=sys.stderr)
     return EXIT_OK
@@ -1152,6 +1184,11 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--no-baseline", action="store_true", help="write the config but do not record a baseline")
     init.add_argument("--pack", help="seed questions from a pack (see `sentinel pack list`)")
     init.add_argument(
+        "--llm-draft",
+        action="store_true",
+        help="ask an OpenAI-compatible model to draft questions (payload is sent unless it is a fixture)",
+    )
+    init.add_argument(
         "--calibrate",
         action="store_true",
         help="after recording the baseline, measure thresholds against injected drift (needs Kev)",
@@ -1182,6 +1219,7 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--live", action="store_true", help="fetch URLs even when fixtures are configured")
     check.add_argument("--no-sem", action="store_true", help="run deterministic rules only")
     check.add_argument("--no-alert", action="store_true", help="do not send webhook alerts")
+    check.add_argument("--lock", action="store_true", help="skip this run if another check holds the lock")
     check.add_argument("--quiet", action="store_true", help="print nothing except the exit code")
     check.add_argument("--verbose", action="store_true", help="include informational rule lines")
     check.add_argument("--github-summary", action="store_true", help="append markdown to $GITHUB_STEP_SUMMARY")
@@ -1204,6 +1242,7 @@ def build_parser() -> argparse.ArgumentParser:
     schedule.add_argument("--format", choices=["all", "cron", "systemd", "github", "watch"], default="all")
     schedule.add_argument("--live", action="store_true", help="add --live to the generated command")
     schedule.add_argument("--no-sem", action="store_true", help="add --no-sem to the generated command")
+    schedule.add_argument("--lock", action="store_true", help="add --lock to the generated one-shot commands")
     _add_config(schedule)
     schedule.set_defaults(func=cmd_schedule)
 
@@ -1246,6 +1285,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="HTTP method to include (repeatable; default: get/post/put/patch)",
     )
     openapi_import.add_argument("--limit", type=int, help="stop after N endpoints")
+    openapi_import.add_argument(
+        "--fetch",
+        action="store_true",
+        help="call each endpoint once and infer questions/watches from the live response",
+    )
+    openapi_import.add_argument("--api-header", action="append", default=[], metavar="KEY: VALUE")
+    openapi_import.add_argument("--timeout", type=float, default=15.0, help="live fetch timeout (default: 15)")
     openapi_import.add_argument("--header", action="append", default=[], metavar="KEY: VALUE")
     openapi_import.set_defaults(func=cmd_import_openapi)
 
@@ -1298,7 +1344,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     console = _console()
     try:
-        return int(args.func(args))
+        lock = None
+        if getattr(args, "lock", False) and getattr(args, "command", None) == "check":
+            lock_config = load_config(args.config)
+            lock = FileLock(lock_config.home / "check.lock")
+            if not lock.acquire():
+                console.print(
+                    "[yellow]another check is already running for this config; skipping[/]"
+                )
+                return EXIT_OK
+        try:
+            return int(args.func(args))
+        finally:
+            if lock is not None:
+                lock.release()
     except ConfigError as exc:
         console.print(f"[red]config error:[/] {exc}")
         return EXIT_CONFIG

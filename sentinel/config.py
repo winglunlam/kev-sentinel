@@ -39,6 +39,7 @@ _TOP_KEYS = {
     "home",
     "max_state_chars",
     "sample_records",
+    "baseline_max_age_days",
     "webhook_url",
     "alert_cooldown_s",
     "state",
@@ -229,6 +230,7 @@ class Config:
     endpoints: tuple[EndpointConfig, ...]
     max_state_chars: int = 6000
     sample_records: int = 3
+    baseline_max_age_days: int = 30
     webhook_url: str | None = None
     alert_cooldown_s: int = 3600
     default_timeout_s: float = 15.0
@@ -302,6 +304,9 @@ def load_config(path: str | Path | None = None) -> Config:
     sample_records = raw.get("sample_records", 3)
     if not isinstance(sample_records, int) or sample_records < 1:
         raise ConfigError("sample_records must be a positive integer")
+    baseline_max_age_days = raw.get("baseline_max_age_days", 30)
+    if not isinstance(baseline_max_age_days, int) or baseline_max_age_days < 0:
+        raise ConfigError("baseline_max_age_days must be a non-negative integer (0 disables the check)")
     max_state_chars = raw.get("max_state_chars", 6000)
     if not isinstance(max_state_chars, int) or max_state_chars < 500:
         raise ConfigError("max_state_chars must be an integer >= 500")
@@ -338,6 +343,7 @@ def load_config(path: str | Path | None = None) -> Config:
         endpoints=tuple(endpoints),
         max_state_chars=max_state_chars,
         sample_records=sample_records,
+        baseline_max_age_days=baseline_max_age_days,
         webhook_url=webhook_url,
         alert_cooldown_s=cooldown,
         default_timeout_s=float(timeout),
@@ -596,9 +602,9 @@ def starter_config(
         header = (
             "# kev-sentinel config. Commit this file; the snapshot database (.sentinel/) is local.\n"
             "#\n"
-            "# Questions were inferred from the baseline payload and carry default thresholds.\n"
-            "# Run `sentinel calibrate` to replace them with measured ones, then `sentinel chaos`\n"
-            "# to prove the layers catch the changes you care about.\n\n"
+            "# The questions below are a draft, generated from the payload, a pack, an OpenAPI\n"
+            "# document or a drafting model. Run `sentinel calibrate` to measure thresholds,\n"
+            "# `sentinel chaos` to check coverage, and `sentinel preflight` before scheduling.\n\n"
         )
         return header + body
     endpoint["questions"] = {
