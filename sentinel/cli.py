@@ -13,6 +13,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
+import sys
+import time
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -23,10 +26,10 @@ from . import __version__
 from .calibrate import run_calibration
 from .chaos import MUTATIONS, MUTATORS, run_chaos
 from .check import EndpointResult, run_check
-from .config import Config, EndpointConfig, load_config, starter_config
+from .config import Condition, Config, EndpointConfig, load_config, starter_config
 from .core.fetch import fetch_endpoint, synthetic_result
 from .watch import fingerprint_with_watch
-from .core.store import Store
+from .core.store import Store, utcnow
 from .errors import BaselineError, ConfigError, KevError, SentinelError
 from .report import (
     calibration_markdown,
@@ -268,6 +271,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     _print_suggestions(console, suggestions)
 
     config = load_config(config_path)
+    endpoint = config.endpoint(args.name)
     if args.no_baseline:
         console.print("skipped baseline; run `sentinel baseline set " + args.name + "` when ready")
         return EXIT_OK
@@ -285,10 +289,70 @@ def cmd_init(args: argparse.Namespace) -> int:
     )
     console.print(f"config: [dim]{config.path}[/]")
     console.print(f"data:   [dim]{config.home / 'sentinel.db'}[/]")
+
+    if args.calibrate:
+        console.print("\n[bold]calibrating thresholds[/] (fetches the endpoint once per injection)")
+        try:
+            judge = KevClient(config.sem)
+            with Store.for_home(config.home) as store:
+                rows = run_calibration(config, endpoint, store, judge)
+        except KevError as exc:
+            console.print(f"[yellow]skipped calibration:[/] {escape(str(exc))}")
+            rows = []
+        if rows:
+            suggestions = {row.question: row for row in rows if row.suggested_fail_if}
+            if suggestions:
+                specs: dict[str, dict[str, Any]] = {}
+                for qid, question in endpoint.questions.items():
+                    row = suggestions.get(qid)
+                    fail_if = (
+                        Condition.parse(row.suggested_fail_if, question.type, qid).raw
+                        if row is not None and row.suggested_fail_if
+                        else question.fail_if.raw
+                    )
+                    specs[qid] = {**question.request(), "fail_if": fail_if}
+                config_path.write_text(
+                    starter_config(
+                        args.name,
+                        url=args.url,
+                        fixture=fixture,
+                        fixture_ref=fixture_ref,
+                        questions=specs,
+                        method=method,
+                        body=body,
+                        headers=headers,
+                        expect_json=expect_json,
+                        stream_timeout_s=args.stream_timeout,
+                    ),
+                    encoding="utf-8",
+                )
+                for qid, row in suggestions.items():
+                    console.print(
+                        f"  [green]{escape(qid)}[/]: {escape(row.suggested_fail_if or '')}"
+                        f" [dim]({escape(row.clean_observed)} -> worst {escape(row.worst_label)})[/]"
+                    )
+                console.print(f"updated [bold]{config_path}[/] with measured thresholds")
+            else:
+                console.print(
+                    "[yellow]no question separated clean from injected drift; "
+                    "defaults were kept -- run `sentinel calibrate` after editing[/]"
+                )
+        elif not rows:
+            console.print(
+                "[dim]calibration produced no rows; defaults were kept[/]"
+            )
+
     console.print("\nnext:")
-    console.print(f"  sentinel calibrate {args.name}   # replace default thresholds with measured ones")
-    console.print(f"  sentinel check {args.name}")
-    console.print(f"  sentinel chaos --endpoint {args.name}")
+    if args.calibrate:
+        console.print(f"  sentinel chaos --endpoint {args.name}   # prove the injected cases are caught", soft_wrap=True)
+        console.print(f"  sentinel check {args.name}", soft_wrap=True)
+        console.print(
+            f"  sentinel schedule --config {config_path} --every 1h   # cron/systemd/GitHub"
+        )
+    else:
+        console.print(f"  sentinel calibrate {args.name}   # replace default thresholds with measured ones", soft_wrap=True)
+        console.print(f"  sentinel check {args.name}", soft_wrap=True)
+        console.print(f"  sentinel chaos --endpoint {args.name}")
     return EXIT_OK
 
 
@@ -589,6 +653,154 @@ def cmd_demo(args: argparse.Namespace) -> int:
         store.close()
 
 
+def cmd_watch(args: argparse.Namespace) -> int:
+    """Long-running mode: check on an interval until interrupted."""
+    config = load_config(args.config)
+    console = _console()
+    store = Store.for_home(config.home)
+    judge = None if args.no_sem else (KevClient(config.sem) if config.sem.enabled else None)
+    endpoints = [config.endpoint(name) for name in args.endpoints] if args.endpoints else list(config.endpoints)
+    cycle = 0
+    exit_code = EXIT_OK
+    try:
+        while True:
+            cycle += 1
+            console.print(f"\n[dim]{utcnow()}[/]  cycle {cycle}")
+            results = []
+            baseline_error = False
+            for endpoint in endpoints:
+                try:
+                    results.append(
+                        run_check(
+                            config,
+                            endpoint,
+                            store,
+                            judge,
+                            live=args.live,
+                            run_sem=not args.no_sem,
+                            alerts=not args.no_alert,
+                        )
+                    )
+                except BaselineError as exc:
+                    console.print(f"[red]✗ {escape(endpoint.name)}[/]  {escape(str(exc))}")
+                    baseline_error = True
+            if results:
+                render_check(console, results)
+            if baseline_error:
+                exit_code = EXIT_CONFIG
+            elif any(result.semantic_error for result in results):
+                exit_code = EXIT_KEV
+            elif any(not result.ok for result in results):
+                exit_code = EXIT_FAIL
+            else:
+                exit_code = EXIT_OK
+            if args.max_cycles and cycle >= args.max_cycles:
+                break
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]watch stopped[/]")
+    finally:
+        store.close()
+    return exit_code
+
+
+def _parse_every(text: str) -> tuple[int, str]:
+    presets = {
+        "1m": (60, "* * * * *"),
+        "5m": (300, "*/5 * * * *"),
+        "10m": (600, "*/10 * * * *"),
+        "15m": (900, "*/15 * * * *"),
+        "30m": (1800, "*/30 * * * *"),
+        "1h": (3600, "17 * * * *"),
+        "6h": (21600, "17 */6 * * *"),
+        "12h": (43200, "17 */12 * * *"),
+        "1d": (86400, "17 3 * * *"),
+    }
+    if text not in presets:
+        raise ConfigError(
+            f"--every: choose one of {', '.join(presets)} (got {text!r})"
+        )
+    return presets[text]
+
+
+def cmd_schedule(args: argparse.Namespace) -> int:
+    """Print copy-pasteable cron, systemd and GitHub Actions schedules."""
+    config = load_config(args.config)
+    interval, cron = _parse_every(args.every)
+    config_path = str(config.path)
+    python = shlex.quote(sys.executable)
+    command = f"{python} -m sentinel check --config {shlex.quote(config_path)}"
+    if args.live:
+        command += " --live"
+    if args.no_sem:
+        command += " --no-sem"
+    env = ""
+    if config.sem.base_url:
+        env = f"SENTINEL_KEV_BASE_URL={shlex.quote(config.sem.base_url)} "
+    console = _console()
+    formats = ["cron", "systemd", "github", "watch"] if args.format == "all" else [args.format]
+    for fmt in formats:
+        console.print(f"\n[bold]# {fmt}[/]")
+        if fmt == "cron":
+            console.print(
+                escape(f"{cron} cd {shlex.quote(str(Path.cwd()))} && {env}{command} "
+                       ">> /tmp/kev-sentinel.log 2>&1"),
+                markup=False, soft_wrap=True,
+            )
+            console.print(
+                "[dim]# add with `crontab -e`; alerts go to SENTINEL_WEBHOOK_URL[/]"
+            )
+        elif fmt == "systemd":
+            console.print(
+                escape(
+                    f"""[Unit]
+Description=kev-sentinel checks
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={Path.cwd()}
+Environment=SENTINEL_KEV_BASE_URL={config.sem.base_url}
+ExecStart={python} -m sentinel check --config {config_path}
+
+[Install]
+WantedBy=default.target"""
+                ),
+                markup=False, soft_wrap=True,
+            )
+            console.print("[dim]# save as ~/.config/systemd/user/kev-sentinel.service; "
+                          "timer: OnUnitActiveSec=" + f"{interval}s[/]")
+        elif fmt == "github":
+            console.print(
+                escape(
+                    f"""name: kev-sentinel
+on:
+  schedule: [{{cron: "{cron}"}}]
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: self-hosted   # Kev must be reachable from the runner
+    steps:
+      - uses: actions/checkout@v4
+      - run: {python} -m sentinel check --config {config_path} --github-summary
+        env:
+          SENTINEL_KEV_BASE_URL: {config.sem.base_url}"""
+                ),
+                markup=False, soft_wrap=True,
+            )
+        elif fmt == "watch":
+            console.print(
+                escape(
+                    f"{env}{python} -m sentinel watch --config {config_path} "
+                    f"--interval {interval}"
+                ),
+                markup=False, soft_wrap=True,
+            )
+            console.print("[dim]# long-running process; use a service manager[/]")
+    return EXIT_OK
+
+
 def cmd_calibrate(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     console = _console()
@@ -774,6 +986,11 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--force", action="store_true", help="overwrite an existing config")
     init.add_argument("--no-baseline", action="store_true", help="write the config but do not record a baseline")
     init.add_argument(
+        "--calibrate",
+        action="store_true",
+        help="after recording the baseline, measure thresholds against injected drift (needs Kev)",
+    )
+    init.add_argument(
         "--no-suggest",
         dest="suggest",
         action="store_false",
@@ -805,6 +1022,24 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(check)
     _add_config(check)
     check.set_defaults(func=cmd_check)
+
+    watch = sub.add_parser("watch", help="run checks on an interval until interrupted")
+    watch.add_argument("endpoints", nargs="*", help="endpoint names (default: all)")
+    watch.add_argument("--interval", type=float, default=3600.0, help="seconds between cycles (default: 3600)")
+    watch.add_argument("--max-cycles", type=int, help="stop after N cycles (for tests/cron wrappers)")
+    watch.add_argument("--live", action="store_true", help="fetch URLs even when fixtures are configured")
+    watch.add_argument("--no-sem", action="store_true", help="rules only")
+    watch.add_argument("--no-alert", action="store_true", help="do not send webhook alerts")
+    _add_config(watch)
+    watch.set_defaults(func=cmd_watch)
+
+    schedule = sub.add_parser("schedule", help="print cron/systemd/GitHub schedules for checks")
+    schedule.add_argument("--every", default="1h", help="1m, 5m, 10m, 15m, 30m, 1h, 6h, 12h, 1d")
+    schedule.add_argument("--format", choices=["all", "cron", "systemd", "github", "watch"], default="all")
+    schedule.add_argument("--live", action="store_true", help="add --live to the generated command")
+    schedule.add_argument("--no-sem", action="store_true", help="add --no-sem to the generated command")
+    _add_config(schedule)
+    schedule.set_defaults(func=cmd_schedule)
 
     chaos = sub.add_parser("chaos", help="inject silent changes and show which layer catches them")
     chaos.add_argument("--endpoint", action="append", help="endpoint name (repeatable; default: all)")

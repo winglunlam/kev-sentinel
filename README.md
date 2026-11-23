@@ -15,7 +15,7 @@ kev-sentinel checks APIs and scrapers for two kinds of change: the ones a schema
 - **Falsifiable.** `sentinel chaos` injects silent changes and prints which layer catches each one. `sentinel demo` does the whole story in one command.
 - **CI-native.** Exit codes, JSON output, GitHub step summaries, and a composite action.
 
-**Contents:** [Try the model](#try-the-model-the-reason-this-repo-exists) · [Rules example](#try-the-rules-layer-in-10-seconds) · [Price watch](#start-here-watch-llm-model-prices) · [Kev checks](#where-kev-is-essential-llm-answer-quality) · [Install](#install) · [Configuration](#configuration-reference) · [CLI](#commands) · [Calibration](#calibration) · [Benchmark](#benchmark)
+**Contents:** [Try the model](#try-the-model-the-reason-this-repo-exists) · [Rules example](#try-the-rules-layer-in-10-seconds) · [Questions](#do-i-have-to-write-the-yaml) · [Price watch](#start-here-watch-llm-model-prices) · [Kev checks](#where-kev-is-essential-llm-answer-quality) · [Install](#install) · [Configuration](#configuration-reference) · [CLI](#commands) · [Calibration](#calibration) · [Benchmark](#benchmark)
 
 ## Try the model (the reason this repo exists)
 
@@ -92,6 +92,38 @@ uv run sentinel check --config examples/llm-prices.yaml
 
 That is an exact-value watch over 24 recorded LLM prices; change one and the
 check fails. The sections below go deeper on both layers.
+
+## Do I have to write the YAML?
+
+Mostly no. `sentinel init` fetches the endpoint once, records the baseline, and
+proposes questions for what it can see in the payload — currency, dates, status
+enums, unit-annotated series, long text, event streams — with a one-line reason
+for each. Add `--calibrate` and it measures those questions against injected
+drift and writes the thresholds too (needs Kev reachable):
+
+```console
+$ sentinel init --calibrate my-api --url https://api.example.com/items
+...
+calibrating thresholds (fetches the endpoint once per injection)
+  description_content: p < 0.55 (p(true)=0.95 -> worst wrong-entity 0.20)
+  published_2026: p < 0.5 (p(true)=0.90 -> worst stale-dates 0.10)
+updated sentinel.yaml with measured thresholds
+```
+
+You hand-write a question only when the judgement is domain-specific ("does the
+reply answer this customer's question?", "is this still the Berlin feed?"). For
+those, copy a block from [examples/](examples/) and run `sentinel calibrate`;
+`sentinel suggest NAME` re-infers the generic set later without touching the
+config. Thresholds are per checkpoint, so re-run `calibrate` when you change
+`sem.model`.
+
+Point it at your own endpoint and schedule it:
+
+```bash
+uv run sentinel init --calibrate my-api --url https://api.example.com/items
+uv run sentinel chaos --endpoint my-api      # prove the injected cases are caught
+uv run sentinel schedule --config sentinel.yaml --every 1h
+```
 
 ## Kev is the engine; this repo is the contract around it
 
@@ -236,31 +268,36 @@ After `sentinel chaos --inject refusal` (the reply text is replaced by a refusal
    ✗ sem    on_topic: p(true)=0.51 fails `p < 0.65`
 ```
 
-### Run the Kev checks on a schedule
+### Run it on a schedule
 
-The plumbing is the same as the price example, with one addition: Kev has to be
-running, as a service (systemd, launchd, a terminal you leave open, or a small
-container). `sentinel check` only talks to it over HTTP:
+`sentinel schedule` prints a ready-to-paste cron line, systemd unit, GitHub
+Actions job and long-running form for the current config:
 
-```bash
-# keep the model server up (or run this under your service manager)
-cd /path/to/kev && uv run --extra serve python -m kev.serve --run jaredpalmer/kev-0.8b --port 8009
+```console
+$ uv run sentinel schedule --config examples/agent-quality.yaml --every 1h
 
-# hourly in cron
-17 * * * * cd /path/to/kev-sentinel && \
-  SENTINEL_KEV_BASE_URL=http://127.0.0.1:8009 \
-  .venv/bin/sentinel check --config examples/agent-quality.yaml >> /tmp/agent-quality.log 2>&1
+# cron
+17 * * * * cd /path/to/kev-sentinel && SENTINEL_KEV_BASE_URL=http://127.0.0.1:8009 /path/to/.venv/bin/python -m sentinel check --config /path/to/examples/agent-quality.yaml >> /tmp/kev-sentinel.log 2>&1
+...
+# watch
+SENTINEL_KEV_BASE_URL=http://127.0.0.1:8009 /path/to/.venv/bin/python -m sentinel watch --config /path/to/examples/agent-quality.yaml --interval 3600
 ```
 
-Export `SENTINEL_WEBHOOK_URL` (or set `webhook_url` in the config) and failures
-open a Slack/Teams/Opsgenie incident on the pass→fail transition only. Exit code
-1 is also what CI uses, so the same command can gate a deploy.
+`--every` accepts `1m, 5m, 10m, 15m, 30m, 1h, 6h, 12h, 1d`, and `--format`
+selects one form. Two modes:
 
-The price example needs no server at all:
+- **one-shot** (cron/systemd/GitHub): one check per interval, exits 1 on drift.
+- **`sentinel watch`**: a long-running process that checks every `--interval`
+  seconds and alerts on the pass→fail transition. Easier in a container or
+  service manager; `Ctrl-C` stops it. `--max-cycles` exists for tests.
+
+Kev must be reachable for semantic checks; the rules-only price config needs no
+server. Export `SENTINEL_WEBHOOK_URL` (or set `webhook_url`) and failures open a
+Slack/Teams/Opsgenie incident with a one-hour cooldown — not on every run.
 
 ```cron
-17 * * * * cd /path/to/kev-sentinel && \
-  .venv/bin/sentinel check --config examples/llm-prices.yaml --live >> /tmp/llm-prices.log 2>&1
+# rules-only, no model server needed
+17 * * * * cd /path/to/kev-sentinel && .venv/bin/sentinel check --config examples/llm-prices.yaml --live >> /tmp/llm-prices.log 2>&1
 ```
 
 ### Where this fits in the real world
@@ -506,12 +543,14 @@ Snapshots and run history live in `.sentinel/sentinel.db` next to the config (gi
 
 | Command | What it does |
 |---|---|
-| `sentinel init NAME --url URL` | infer questions from the payload, write the config, record the baseline |
+| `sentinel init NAME --url URL [--calibrate]` | infer questions, write the config, record the baseline; `--calibrate` measures thresholds |
 | `sentinel suggest NAME` | print inferred questions as a YAML block (does not edit the config) |
 | `sentinel demo` | baseline, clean check, injected drift, verdict — the 10-second demo |
 | `sentinel baseline set NAME...` | fetch endpoints and record new baselines |
 | `sentinel baseline show [NAME]` | print one baseline in detail, or list every baseline when NAME is omitted |
 | `sentinel check [NAME...]` | run rules and Kev against the baselines |
+| `sentinel watch [NAME...]` | check on an interval until interrupted (long-running mode) |
+| `sentinel schedule` | print cron/systemd/GitHub/watch setup for this config |
 | `sentinel chaos [--endpoint NAME] [--inject NAME]` | inject silent changes and report which layer catches each |
 | `sentinel calibrate [NAME...]` | measure clean vs drifted scores, suggest `fail_if` thresholds |
 | `sentinel report [--last N] [--md]` | recent runs and baseline ages |
@@ -669,7 +708,7 @@ Issues and pull requests are welcome. If you publish a "built with Kev" tool, te
 ```bash
 uv sync --extra dev
 uv run ruff check .           # lint
-uv run pytest                 # 117 tests, no weights or network
+uv run pytest                 # 120 tests, no weights or network
 make check                    # rules-only check over the example fixtures
 make demo                     # requires a Kev server on :8009
 make demo-offline             # the same story, rules layer only

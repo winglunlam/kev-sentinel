@@ -40,6 +40,14 @@ A proposal is a hypothesis. `sentinel calibrate` is what turns it into a
 measurement, and medium-confidence proposals (marked `(verify)`) should not gate
 anything until the margin is acceptable.
 
+## Let the tool draft the questions
+
+`sentinel init --calibrate` infers the generic question set from the payload,
+records the baseline, then measures each question against the semantic chaos
+injections and writes the thresholds. Start there; only questions about
+domain-specific judgement ("does the reply answer this customer?") need a human
+to write them. `sentinel suggest NAME` re-runs inference without editing.
+
 ## Calibration loop
 
 ```bash

@@ -200,3 +200,56 @@ def test_price_watch_runs_without_kev(tmp_path, monkeypatch, capsys):
     assert cli.main(["check", "--config", str(config)]) == 1
     out = capsys.readouterr().out
     assert "watched value(s) changed" in out
+
+
+def test_schedule_prints_all_formats(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    fixture = copy_fixture(tmp_path)
+    assert cli.main(["init", "jobs-api", "--fixture", str(fixture)]) == 0
+    capsys.readouterr()
+    assert cli.main(["schedule", "--config", str(tmp_path / "sentinel.yaml"), "--every", "10m"]) == 0
+    out = capsys.readouterr().out
+    assert "*/10 * * * *" in out
+    assert "sentinel check" in out
+    assert "systemd" in out and "github" in out and "watch" in out
+
+
+def test_watch_runs_one_cycle_and_reports_drift(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    fixture = copy_fixture(tmp_path)
+    assert cli.main(["init", "jobs-api", "--fixture", str(fixture)]) == 0
+    capsys.readouterr()
+    assert cli.main(["watch", "--config", str(tmp_path / "sentinel.yaml"), "--max-cycles", "1", "--no-sem", "--no-alert"]) == 0
+    assert "cycle 1" in capsys.readouterr().out
+
+    data = read_json(fixture)
+    for job in data["jobs"]:
+        del job["title"]
+    write_json(fixture, data)
+    assert cli.main(["watch", "--config", str(tmp_path / "sentinel.yaml"), "--max-cycles", "1", "--no-sem", "--no-alert"]) == 1
+
+
+def test_init_calibrate_rewrites_thresholds(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    fixture = copy_fixture(tmp_path)
+
+    def fn(qid, state):
+        if qid == "description_content":
+            return noul(qid, 0.2 if "luxury watches" in state else 0.95)
+        if qid == "published_2026":
+            return noul(qid, 0.1 if "2019" in state else 0.9)
+        if qid == "error_page":
+            return noul(qid, 0.02)
+        return noul(qid, 0.9)
+
+    monkeypatch.setattr(cli, "KevClient", _fake_judge_factory(FakeJudge(fn=fn)))
+    assert cli.main(["init", "jobs-api", "--fixture", str(fixture), "--calibrate"]) == 0
+    output = capsys.readouterr().out
+    assert "with measured thresholds" in output
+    import yaml
+
+    document = yaml.safe_load((tmp_path / "sentinel.yaml").read_text())
+    question = document["endpoints"][0]["questions"]["description_content"]
+    assert question["fail_if"] != "p < 0.5"
+    assert question["fail_if"] in {"p < 0.55", "p < 0.6"}
+    assert "sentinel schedule" in output
