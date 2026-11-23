@@ -102,20 +102,43 @@ def _make(spec: Mutator, data: Any) -> Mutation:
 def _wrong_entity(base: FetchResult, opts: dict[str, Any], name: str) -> Mutation:
     spec = _REGISTRY[name]
     data = _require_json(base, name)
-    changed = 0
-    for item in records_of(data):
-        if not isinstance(item, dict):
-            continue
-        for key, value in list(item.items()):
-            if isinstance(value, str) and _is_entity_string(value):
-                item[key] = _spam_like(value)
-                changed += 1
-    if changed == 0:
-        for item in records_of(data):
-            if isinstance(item, dict):
-                for key, value in list(item.items()):
-                    if isinstance(value, str):
-                        item[key] = _spam_like(value)
+    changed = {"n": 0}
+
+    def replace(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {key: replace(value) for key, value in node.items()}
+        if isinstance(node, list):
+            return [replace(item) for item in node]
+        if isinstance(node, str) and _is_entity_string(node):
+            changed["n"] += 1
+            return _spam_like(node)
+        return node
+
+    records = records_of(data)
+    if records:
+        for item in records:
+            item.update(replace(item))
+    else:
+        data = replace(data)
+    if changed["n"] == 0:
+        # fall back to replacing every string, still preserving shape and length
+        def replace_all(node: Any) -> Any:
+            if isinstance(node, dict):
+                return {key: replace_all(value) for key, value in node.items()}
+            if isinstance(node, list):
+                return [replace_all(item) for item in node]
+            if isinstance(node, str) and len(node) >= 4:
+                changed["n"] += 1
+                return _spam_like(node)
+            return node
+
+        if records:
+            for item in records:
+                item.update(replace_all(item))
+        else:
+            data = replace_all(data)
+    if changed["n"] == 0:
+        raise ValueError("wrong-entity found no text to replace")
     return _make(spec, data)
 
 

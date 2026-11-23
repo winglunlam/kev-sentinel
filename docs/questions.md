@@ -89,6 +89,10 @@ answer_on_topic:
 `sentinel calibrate` cannot invent that judgement for you, but it will tell you
 whether the question separates clean replies from the `stream-silence` injection.
 
+Before scheduling, run `sentinel preflight`: it fails when a question is weak
+(margin under 0.15), has no matching injection, or the chaos classes are not
+caught. That is the gate between "drafted" and "trusted".
+
 ## Examples
 
 Good:

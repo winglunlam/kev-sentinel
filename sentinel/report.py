@@ -215,6 +215,43 @@ def render_doctor(console: Console, *, config_path: str, home: str, kev: dict | 
     console.print(table)
 
 
+def render_preflight(console: Console, report) -> None:
+    table = Table(title="preflight: is this config safe to schedule?", show_lines=False)
+    table.add_column("endpoint", no_wrap=True)
+    table.add_column("baseline", no_wrap=True)
+    table.add_column("clean", no_wrap=True)
+    table.add_column("proven", justify="right", no_wrap=True)
+    table.add_column("weak", justify="right", no_wrap=True)
+    table.add_column("unproven", justify="right", no_wrap=True)
+    for item in report.endpoints:
+        table.add_row(
+            escape(item.endpoint),
+            "[green]ok[/]" if item.baseline else "[red]missing[/]",
+            "[green]ok[/]" if item.clean else "[red]FAIL[/]",
+            str(len(item.proven_questions)),
+            f"[yellow]{len(item.weak_questions)}[/]" if item.weak_questions else "0",
+            str(len(item.unproven_questions)),
+        )
+    console.print(table)
+    for item in report.endpoints:
+        for qid, margin in item.weak_questions:
+            console.print(f"  [yellow]weak[/] {escape(item.endpoint)}/{escape(qid)} margin {margin:.2f} < 0.15")
+        for qid in item.unproven_questions:
+            console.print(f"  [dim]unproven[/] {escape(item.endpoint)}/{escape(qid)}: no matching injection")
+    if report.missed_rules:
+        console.print(f"  [red]rules missed:[/] {', '.join(report.missed_rules)}")
+    if report.missed_semantics:
+        console.print(f"  [red]semantics missed:[/] {', '.join(report.missed_semantics)}")
+    if report.kev_unavailable:
+        console.print("  [red]Kev was unreachable; semantic readiness is unknown[/]")
+    for note in report.extra:
+        console.print(f"  [dim]{escape(note)}[/]")
+    if report.go:
+        console.print("\n[green]GO[/] — baseline, clean check, thresholds and chaos coverage all hold")
+    else:
+        console.print("\n[red]NO-GO[/] — do not schedule this config until the failures above are resolved")
+
+
 def history_markdown(runs: Sequence[RunRecord]) -> str:
     lines = ["| When | Endpoint | Result | Detail |", "|---|---|---|---|"]
     for run in runs:

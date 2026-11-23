@@ -253,3 +253,67 @@ def test_init_calibrate_rewrites_thresholds(tmp_path, monkeypatch, capsys):
     assert question["fail_if"] != "p < 0.5"
     assert question["fail_if"] in {"p < 0.55", "p < 0.6"}
     assert "sentinel schedule" in output
+
+
+def test_preflight_rules_only_go(tmp_path, monkeypatch, capsys):
+    import shutil
+
+    from .conftest import EXAMPLES
+
+    target = tmp_path / "examples"
+    shutil.copytree(EXAMPLES, target, ignore=shutil.ignore_patterns(".sentinel"))
+    config = target / "llm-prices.yaml"
+    assert cli.main(["baseline", "set", "--config", str(config), "openrouter-models"]) == 0
+    capsys.readouterr()
+    assert cli.main(["preflight", "--config", str(config), "--no-sem"]) == 0
+    out = capsys.readouterr().out
+    assert "GO" in out and "NO-GO" not in out
+
+
+def test_preflight_missing_baseline_is_config_error(tmp_path, monkeypatch, capsys):
+    import shutil
+
+    from .conftest import EXAMPLES
+
+    target = tmp_path / "examples"
+    shutil.copytree(EXAMPLES, target, ignore=shutil.ignore_patterns(".sentinel"))
+    assert cli.main(["preflight", "--config", str(target / "llm-prices.yaml"), "--no-sem"]) == 2
+    out = capsys.readouterr().out
+    assert "missing" in out and "NO-GO" in out
+
+
+def test_preflight_clean_drift_is_no_go(tmp_path, monkeypatch, capsys):
+    import json
+    import shutil
+
+    from .conftest import EXAMPLES
+
+    target = tmp_path / "examples"
+    shutil.copytree(EXAMPLES, target, ignore=shutil.ignore_patterns(".sentinel"))
+    config = target / "llm-prices.yaml"
+    fixture = target / "fixtures" / "openrouter-models.json"
+    assert cli.main(["baseline", "set", "--config", str(config), "openrouter-models"]) == 0
+    data = json.loads(fixture.read_text())
+    data["data"][0]["pricing"]["prompt"] = "0.5"
+    fixture.write_text(json.dumps(data))
+    capsys.readouterr()
+    assert cli.main(["preflight", "--config", str(config), "--no-sem"]) == 1
+    out = capsys.readouterr().out
+    assert "NO-GO" in out
+
+
+def test_preflight_json(tmp_path, monkeypatch, capsys):
+    import json
+    import shutil
+
+    from .conftest import EXAMPLES
+
+    target = tmp_path / "examples"
+    shutil.copytree(EXAMPLES, target, ignore=shutil.ignore_patterns(".sentinel"))
+    config = target / "llm-prices.yaml"
+    assert cli.main(["baseline", "set", "--config", str(config), "openrouter-models"]) == 0
+    capsys.readouterr()
+    assert cli.main(["preflight", "--config", str(config), "--no-sem", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["go"] is True
+    assert payload["endpoints"][0]["baseline"] is True

@@ -15,7 +15,7 @@ kev-sentinel checks APIs and scrapers for two kinds of change: the ones a schema
 - **Falsifiable.** `sentinel chaos` injects silent changes and prints which layer catches each one. `sentinel demo` does the whole story in one command.
 - **CI-native.** Exit codes, JSON output, GitHub step summaries, and a composite action.
 
-**Contents:** [Try the model](#try-the-model-the-reason-this-repo-exists) · [Rules example](#try-the-rules-layer-in-10-seconds) · [Questions](#do-i-have-to-write-the-yaml) · [Price watch](#start-here-watch-llm-model-prices) · [Kev checks](#where-kev-is-essential-llm-answer-quality) · [Install](#install) · [Configuration](#configuration-reference) · [CLI](#commands) · [Calibration](#calibration) · [Benchmark](#benchmark)
+**Contents:** [Try the model](#try-the-model-the-reason-this-repo-exists) · [Rules example](#try-the-rules-layer-in-10-seconds) · [Questions](#do-i-have-to-write-the-yaml) · [Production readiness](#is-it-production-ready) · [Price watch](#start-here-watch-llm-model-prices) · [Kev checks](#where-kev-is-essential-llm-answer-quality) · [Install](#install) · [Configuration](#configuration-reference) · [CLI](#commands) · [Calibration](#calibration) · [Benchmark](#benchmark)
 
 ## Try the model (the reason this repo exists)
 
@@ -124,6 +124,30 @@ uv run sentinel init --calibrate my-api --url https://api.example.com/items
 uv run sentinel chaos --endpoint my-api      # prove the injected cases are caught
 uv run sentinel schedule --config sentinel.yaml --every 1h
 ```
+
+## Is it production-ready?
+
+The tool is; the generated config is a draft until you gate it. The maturity
+ladder is four commands:
+
+```bash
+sentinel init --calibrate my-api --url https://api.example.com/items   # draft + thresholds
+sentinel chaos --endpoint my-api                                       # prove the injectors are caught
+sentinel preflight --config sentinel.yaml                              # GO / NO-GO gate
+sentinel schedule --config sentinel.yaml --every 1h                    # cron/systemd/GitHub
+```
+
+`sentinel preflight` does not just run the check once. It verifies the baseline
+exists and matches the current payload, the clean payload passes, every question
+separated clean from injected drift with at least a 0.15 margin (weak and
+unproven questions are listed by name), and every chaos injection class was
+caught by some layer. It exits 0 only on GO, and 1 on NO-GO — so you can run it
+as the last CI step before enabling cron.
+
+That gate is the honest answer to "can I trust inferred questions?": inference
+drafts, calibration measures, chaos proves coverage, and `preflight` refuses to
+call it ready when any of that is missing. Questions about domain-specific
+judgement still need a human; everything above tells you which ones those are.
 
 ## Kev is the engine; this repo is the contract around it
 
@@ -550,6 +574,7 @@ Snapshots and run history live in `.sentinel/sentinel.db` next to the config (gi
 | `sentinel baseline show [NAME]` | print one baseline in detail, or list every baseline when NAME is omitted |
 | `sentinel check [NAME...]` | run rules and Kev against the baselines |
 | `sentinel watch [NAME...]` | check on an interval until interrupted (long-running mode) |
+| `sentinel preflight [NAME...]` | GO/NO-GO gate: baseline, clean check, margins, chaos coverage |
 | `sentinel schedule` | print cron/systemd/GitHub/watch setup for this config |
 | `sentinel chaos [--endpoint NAME] [--inject NAME]` | inject silent changes and report which layer catches each |
 | `sentinel calibrate [NAME...]` | measure clean vs drifted scores, suggest `fail_if` thresholds |
@@ -708,7 +733,7 @@ Issues and pull requests are welcome. If you publish a "built with Kev" tool, te
 ```bash
 uv sync --extra dev
 uv run ruff check .           # lint
-uv run pytest                 # 120 tests, no weights or network
+uv run pytest                 # 124 tests, no weights or network
 make check                    # rules-only check over the example fixtures
 make demo                     # requires a Kev server on :8009
 make demo-offline             # the same story, rules layer only

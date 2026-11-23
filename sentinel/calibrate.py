@@ -20,6 +20,8 @@ from .errors import BaselineError, KevError
 from .sem.client import Judge
 from .sem.types import Answer
 
+WEAK_MARGIN = 0.15
+
 
 @dataclass(frozen=True)
 class CalibrationShot:

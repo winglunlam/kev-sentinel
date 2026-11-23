@@ -23,9 +23,10 @@ from rich.console import Console
 from rich.markup import escape
 
 from . import __version__
-from .calibrate import run_calibration
+from .calibrate import WEAK_MARGIN, run_calibration
 from .chaos import MUTATIONS, MUTATORS, run_chaos
 from .check import EndpointResult, run_check
+from .preflight import run_preflight
 from .config import Condition, Config, EndpointConfig, load_config, starter_config
 from .core.fetch import fetch_endpoint, synthetic_result
 from .watch import fingerprint_with_watch
@@ -42,6 +43,7 @@ from .report import (
     render_check,
     render_doctor,
     render_history,
+    render_preflight,
 )
 from .sem.client import KevClient, probe
 from .suggest import render_suggestions, starter_questions, suggest_questions
@@ -331,6 +333,16 @@ def cmd_init(args: argparse.Namespace) -> int:
                         f"  [green]{escape(qid)}[/]: {escape(row.suggested_fail_if or '')}"
                         f" [dim]({escape(row.clean_observed)} -> worst {escape(row.worst_label)})[/]"
                     )
+                weak = [
+                    row
+                    for row in suggestions.values()
+                    if row.separation is not None and row.separation < WEAK_MARGIN
+                ]
+                if weak:
+                    console.print(
+                        "  [yellow]weak separation (< 0.15):[/] "
+                        + ", ".join(f"{row.question} {row.separation:.2f}" for row in weak)
+                    )
                 console.print(f"updated [bold]{config_path}[/] with measured thresholds")
             else:
                 console.print(
@@ -345,6 +357,9 @@ def cmd_init(args: argparse.Namespace) -> int:
     console.print("\nnext:")
     if args.calibrate:
         console.print(f"  sentinel chaos --endpoint {args.name}   # prove the injected cases are caught", soft_wrap=True)
+        console.print(
+            f"  sentinel preflight {args.name}           # go/no-go before scheduling", soft_wrap=True
+        )
         console.print(f"  sentinel check {args.name}", soft_wrap=True)
         console.print(
             f"  sentinel schedule --config {config_path} --every 1h   # cron/systemd/GitHub"
@@ -801,6 +816,36 @@ jobs:
     return EXIT_OK
 
 
+def cmd_preflight(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    console = _console()
+    semantic = not args.no_sem and config.sem.enabled
+    judge = KevClient(config.sem) if semantic else None
+    store = Store.for_home(config.home)
+    try:
+        endpoints = [config.endpoint(name) for name in args.endpoints] if args.endpoints else list(config.endpoints)
+        report = run_preflight(
+            config,
+            endpoints,
+            store,
+            judge,
+            live=args.live,
+            semantic=semantic,
+            calibrate=not args.no_calibrate and semantic,
+        )
+    finally:
+        store.close()
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2, ensure_ascii=False))
+    else:
+        render_preflight(console, report)
+    if report.kev_unavailable:
+        return EXIT_KEV
+    if any(not item.baseline for item in report.endpoints):
+        return EXIT_CONFIG
+    return EXIT_OK if report.go else EXIT_FAIL
+
+
 def cmd_calibrate(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     console = _console()
@@ -829,6 +874,17 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
         print(json.dumps([row.to_dict() for row in all_rows], indent=2, ensure_ascii=False))
     if args.github_summary:
         _write_github_summary(console, "### kev-sentinel calibration\n\n" + calibration_markdown(all_rows))
+    weak = [
+        row
+        for row in all_rows
+        if row.separation is not None and row.separation < WEAK_MARGIN
+    ]
+    if weak and not args.json:
+        console.print(
+            "[yellow]weak separation (< 0.15):[/] "
+            + ", ".join(f"{row.question} {row.separation:.2f}" for row in weak[:6])
+            + (" ..." if len(weak) > 6 else "")
+        )
     missing = [row for row in all_rows if row.suggested_fail_if is None]
     if missing and not args.json:
         console.print(
@@ -1067,6 +1123,17 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(suggest)
     _add_config(suggest)
     suggest.set_defaults(func=cmd_suggest)
+
+    preflight = sub.add_parser(
+        "preflight", help="gate a config: baseline, clean check, calibration margins, chaos coverage"
+    )
+    preflight.add_argument("endpoints", nargs="*", help="endpoint names (default: all)")
+    preflight.add_argument("--live", action="store_true", help="fetch URLs even when fixtures are configured")
+    preflight.add_argument("--no-sem", action="store_true", help="rules layer only")
+    preflight.add_argument("--no-calibrate", action="store_true", help="skip the calibration pass")
+    _add_json(preflight)
+    _add_config(preflight)
+    preflight.set_defaults(func=cmd_preflight)
 
     calibrate = sub.add_parser("calibrate", help="measure clean vs injected drift and suggest thresholds")
     calibrate.add_argument("endpoints", nargs="*", help="endpoint names (default: all)")
