@@ -1,0 +1,22 @@
+name: news
+title: News and article feeds
+description: >
+  For news APIs and content feeds. Stale content and content replacement keep the
+  schema and only move the meaning.
+questions:
+  articles_present:
+    type: noul
+    instructions: >
+      Does this payload contain news articles or stories with headlines and a
+      body or summary?
+    fail_if: "p < 0.6"
+  article_content:
+    type: noul
+    instructions: >
+      Do the headlines and summaries describe specific events or reporting,
+      rather than advertising, boilerplate, or unrelated text?
+    fail_if: "p < 0.5"
+  dates_current:
+    type: noul
+    instructions: Do the dates in this payload fall in {year}?
+    fail_if: "p < 0.5"

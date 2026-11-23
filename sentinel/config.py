@@ -517,6 +517,11 @@ def _parse_watch(raw: Any, where: str) -> WatchConfig | None:
     )
 
 
+def parse_question(qid: str, raw: Any, where: str = "question") -> Question:
+    """Public wrapper used by question packs and importers."""
+    return _parse_question(qid, raw, where)
+
+
 def _parse_question(qid: str, raw: Any, where: str) -> Question:
     if not isinstance(raw, Mapping):
         raise ConfigError(f"{where}: expected a mapping")

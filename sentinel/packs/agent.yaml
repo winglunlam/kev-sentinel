@@ -1,0 +1,23 @@
+name: agent
+title: LLM answer quality
+description: >
+  For chat-completion or agent endpoints. Shape and status can stay green while
+  the assistant refuses, deflects with boilerplate, or answers a different
+  question.
+questions:
+  answers_question:
+    type: noul
+    instructions: >
+      Does the reply actually answer the user's request, rather than declining,
+      deflecting, or answering something else?
+    fail_if: "p < 0.55"
+  is_refusal:
+    type: noul
+    instructions: Does the reply refuse the request, or say that it cannot help?
+    fail_if: "p > 0.5"
+  on_topic:
+    type: noul
+    instructions: >
+      Is the reply about the request, rather than a generic acknowledgement or a
+      different topic?
+    fail_if: "p < 0.65"

@@ -36,6 +36,36 @@ Questions live in `sentinel.yaml`, not in code. When you add one:
 Questions that are always 0.02 or always 0.98 are not measurements; prefer a
 different phrasing or a different signal.
 
+## Adding a question pack
+
+Packs are YAML, not Python. Add `sentinel/packs/<name>.yaml`:
+
+```yaml
+name: invoices
+title: Invoice and billing feeds
+description: >
+  What can silently change about an invoice feed.
+questions:
+  invoice_present:
+    type: noul
+    instructions: Does this payload contain invoices with an amount and a due date?
+    fail_if: "p < 0.6"
+```
+
+`{year}` in instructions or ids is replaced with the current year. Validate with
+`sentinel pack show <name>`, then measure thresholds on a real Kev checkpoint
+with `sentinel calibrate` and put the measured `fail_if` values in the pack. Add
+a case to `tests/test_packs.py` (and a fixture if the pack is shape-specific) in
+the same pull request.
+
+## OpenAPI importer changes
+
+`test_openapi_import.py` and `tests/fixtures/openapi-catalogue.json` cover the
+importer. New behaviour needs a fixture case for: example-driven questions,
+schema-only fallback, path-parameter substitution, POST body examples, and
+skipped operations. Keep generated configs loadable (`sentinel import --out`
+validates with `load_config`).
+
 ## Adding a suggestion heuristic
 
 `sentinel/suggest.py` turns payload structure into candidate questions. A new

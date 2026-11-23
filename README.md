@@ -95,11 +95,20 @@ check fails. The sections below go deeper on both layers.
 
 ## Do I have to write the YAML?
 
-Mostly no. `sentinel init` fetches the endpoint once, records the baseline, and
-proposes questions for what it can see in the payload — currency, dates, status
-enums, unit-annotated series, long text, event streams — with a one-line reason
-for each. Add `--calibrate` and it measures those questions against injected
-drift and writes the thresholds too (needs Kev reachable):
+No. Question generation has three sources, in order of reliability:
+
+1. **OpenAPI import** for documented APIs. The spec declares fields, formats,
+   enums, bounds and often example responses; the importer turns them into
+   endpoints, watches and questions without guessing from a payload.
+2. **Question packs** for common endpoint archetypes (LLM agent, marketplace
+   listings, news feeds). Packs are YAML data, not Python — the community can
+   add and improve them.
+3. **Payload inference** as the fallback for undocumented APIs: `sentinel init`
+   fetches once and proposes questions for currency, dates, status, unit series,
+   long text and streams, with a one-line reason each.
+
+Then `--calibrate` measures every question against injected drift and writes the
+thresholds:
 
 ```console
 $ sentinel init --calibrate my-api --url https://api.example.com/items
@@ -111,17 +120,43 @@ updated sentinel.yaml with measured thresholds
 ```
 
 You hand-write a question only when the judgement is domain-specific ("does the
-reply answer this customer's question?", "is this still the Berlin feed?"). For
-those, copy a block from [examples/](examples/) and run `sentinel calibrate`;
-`sentinel suggest NAME` re-infers the generic set later without touching the
-config. Thresholds are per checkpoint, so re-run `calibrate` when you change
-`sem.model`.
+reply answer *this* customer?", "is this still the Berlin feed?"). Thresholds are
+per checkpoint, so re-run `calibrate` when you change `sem.model`.
 
-Point it at your own endpoint and schedule it:
+### From OpenAPI
+
+```bash
+uv run sentinel import openapi https://api.example.com/openapi.json --out sentinel.yaml
+uv run sentinel baseline set --config sentinel.yaml
+uv run sentinel preflight --config sentinel.yaml
+```
+
+Example responses in the spec produce payload-inferred questions and exact
+watches (`pricing.prompt`, `price`, …). Operations with only a schema produce
+schema-derived questions (dates, numeric ranges, currency). Operations whose path
+parameters or POST body have no example are skipped with a note instead of
+producing a config that cannot be called.
+
+### From a pack
+
+```bash
+uv run sentinel pack list
+uv run sentinel pack show agent
+uv run sentinel init support-agent --url https://agent.example.com/chat --pack agent
+```
+
+Packs live in [sentinel/packs/](sentinel/packs/) as YAML and support a `{year}`
+placeholder. Adding one is a YAML file plus a test — see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+### From the payload
+
+For undocumented APIs, inference remains the bootstrap:
 
 ```bash
 uv run sentinel init --calibrate my-api --url https://api.example.com/items
-uv run sentinel chaos --endpoint my-api      # prove the injected cases are caught
+uv run sentinel chaos --endpoint my-api
+uv run sentinel preflight --config sentinel.yaml
 uv run sentinel schedule --config sentinel.yaml --every 1h
 ```
 
@@ -567,7 +602,9 @@ Snapshots and run history live in `.sentinel/sentinel.db` next to the config (gi
 
 | Command | What it does |
 |---|---|
-| `sentinel init NAME --url URL [--calibrate]` | infer questions, write the config, record the baseline; `--calibrate` measures thresholds |
+| `sentinel init NAME --url URL [--pack PACK] [--calibrate]` | infer questions (or use a pack), write the config, record the baseline; `--calibrate` measures thresholds |
+| `sentinel import openapi SOURCE --out FILE` | generate endpoints, watches and questions from an OpenAPI 3 document |
+| `sentinel pack list` / `sentinel pack show NAME` | browse and print the shipped question packs |
 | `sentinel suggest NAME` | print inferred questions as a YAML block (does not edit the config) |
 | `sentinel demo` | baseline, clean check, injected drift, verdict — the 10-second demo |
 | `sentinel baseline set NAME...` | fetch endpoints and record new baselines |
@@ -733,7 +770,7 @@ Issues and pull requests are welcome. If you publish a "built with Kev" tool, te
 ```bash
 uv sync --extra dev
 uv run ruff check .           # lint
-uv run pytest                 # 124 tests, no weights or network
+uv run pytest                 # 134 tests, no weights or network
 make check                    # rules-only check over the example fixtures
 make demo                     # requires a Kev server on :8009
 make demo-offline             # the same story, rules layer only

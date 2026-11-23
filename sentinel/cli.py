@@ -15,17 +15,22 @@ import json
 import os
 import shlex
 import sys
+
+import yaml
 import time
 from pathlib import Path
 from typing import Any, Sequence
 
 from rich.console import Console
+from rich.table import Table
 from rich.markup import escape
 
 from . import __version__
 from .calibrate import WEAK_MARGIN, run_calibration
 from .chaos import MUTATIONS, MUTATORS, run_chaos
 from .check import EndpointResult, run_check
+from .openapi import config_yaml, endpoints_from_spec, load_spec
+from .packs import list_packs, load_pack
 from .preflight import run_preflight
 from .config import Condition, Config, EndpointConfig, load_config, starter_config
 from .core.fetch import fetch_endpoint, synthetic_result
@@ -46,7 +51,7 @@ from .report import (
     render_preflight,
 )
 from .sem.client import KevClient, probe
-from .suggest import render_suggestions, starter_questions, suggest_questions
+from .suggest import error_page_question, render_suggestions, starter_questions, suggest_questions
 
 EXIT_OK = 0
 EXIT_FAIL = 1
@@ -246,7 +251,18 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     questions = None
     suggestions = []
-    if args.suggest:
+    if args.pack:
+        try:
+            pack = load_pack(args.pack)
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
+        questions = pack.specs()
+        questions.setdefault("error_page", error_page_question().spec())
+        console.print(
+            f"using question pack [bold]{escape(pack.name)}[/] "
+            f"({len(pack.questions)} question(s), {escape(pack.title)})"
+        )
+    elif args.suggest:
         questions, suggestions = starter_questions(result.json, endpoint_name=args.name)
         if handshake_only and args.allow_handshake_only:
             # A presence question cannot pass against a baseline with no reply.
@@ -816,6 +832,99 @@ jobs:
     return EXIT_OK
 
 
+def cmd_pack_list(args: argparse.Namespace) -> int:
+    packs = list_packs()
+    if args.json:
+        print(json.dumps(
+            [
+                {
+                    "name": pack.name,
+                    "title": pack.title,
+                    "description": pack.description,
+                    "questions": list(pack.questions),
+                }
+                for pack in packs
+            ],
+            indent=2,
+            ensure_ascii=False,
+        ))
+        return EXIT_OK
+    console = _console()
+    table = Table(title="question packs")
+    table.add_column("name", no_wrap=True)
+    table.add_column("title")
+    table.add_column("questions")
+    for pack in packs:
+        table.add_row(escape(pack.name), escape(pack.title), str(len(pack.questions)))
+    console.print(table)
+    console.print("[dim]use: sentinel init NAME --url URL --pack agent[/]")
+    return EXIT_OK
+
+
+def cmd_pack_show(args: argparse.Namespace) -> int:
+    try:
+        pack = load_pack(args.name)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+    document = yaml.safe_dump(
+        {"name": pack.name, "title": pack.title, "questions": pack.specs()},
+        sort_keys=False,
+        allow_unicode=True,
+        width=100,
+    )
+    if args.json:
+        print(json.dumps(
+            {"name": pack.name, "title": pack.title, "description": pack.description, "questions": pack.specs()},
+            indent=2,
+            ensure_ascii=False,
+        ))
+    else:
+        print(document)
+    return EXIT_OK
+
+
+def cmd_import_openapi(args: argparse.Namespace) -> int:
+    console = _console()
+    try:
+        headers = _parse_headers(args.header or [])
+        spec = load_spec(args.source, headers=headers)
+        methods = tuple(item.lower() for item in args.methods) if args.methods else ("get", "post", "put", "patch")
+        endpoints, skipped = endpoints_from_spec(
+            spec, base_url=args.base_url, methods=methods, limit=args.limit
+        )
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
+    if not endpoints:
+        raise ConfigError("no importable JSON operations found in the OpenAPI document")
+    text = config_yaml(endpoints)
+    if args.out:
+        target = Path(args.out).expanduser()
+        if target.exists() and not args.force:
+            raise ConfigError(f"{target} exists; pass --force to overwrite it")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+        load_config(target)
+        console.print(f"wrote [bold]{target}[/] with {len(endpoints)} endpoint(s)")
+        for endpoint in endpoints:
+            extras = []
+            if endpoint.watch:
+                extras.append(f"watch {len(endpoint.watch.get('fields', []))} field(s)")
+            if endpoint.body is not None:
+                extras.append("POST body")
+            suffix = f"  [dim]({', '.join(extras)})[/]" if extras else ""
+            console.print(f"  {escape(endpoint.name)}  {endpoint.method} {escape(endpoint.url)}{suffix}")
+        if skipped:
+            console.print("[yellow]skipped:[/]")
+            for warning in skipped:
+                console.print(f"  [dim]{escape(warning)}[/]")
+        console.print("\nnext: sentinel baseline set --config <file>, then sentinel preflight --config <file>")
+    else:
+        print(text)
+        for warning in skipped:
+            print(f"skipped: {warning}", file=sys.stderr)
+    return EXIT_OK
+
+
 def cmd_preflight(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     console = _console()
@@ -1041,6 +1150,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     init.add_argument("--force", action="store_true", help="overwrite an existing config")
     init.add_argument("--no-baseline", action="store_true", help="write the config but do not record a baseline")
+    init.add_argument("--pack", help="seed questions from a pack (see `sentinel pack list`)")
     init.add_argument(
         "--calibrate",
         action="store_true",
@@ -1123,6 +1233,31 @@ def build_parser() -> argparse.ArgumentParser:
     _add_json(suggest)
     _add_config(suggest)
     suggest.set_defaults(func=cmd_suggest)
+
+    importer = sub.add_parser("import", help="generate a config from an API description")
+    import_formats = importer.add_subparsers(dest="import_format", required=True)
+    openapi_import = import_formats.add_parser("openapi", help="import OpenAPI 3 operations")
+    openapi_import.add_argument("source", help="path or URL of the OpenAPI document")
+    openapi_import.add_argument("--base-url", help="override servers[0].url")
+    openapi_import.add_argument("--out", help="write the generated config here (default: stdout)")
+    openapi_import.add_argument("--force", action="store_true", help="overwrite an existing --out file")
+    openapi_import.add_argument(
+        "--method", dest="methods", action="append",
+        help="HTTP method to include (repeatable; default: get/post/put/patch)",
+    )
+    openapi_import.add_argument("--limit", type=int, help="stop after N endpoints")
+    openapi_import.add_argument("--header", action="append", default=[], metavar="KEY: VALUE")
+    openapi_import.set_defaults(func=cmd_import_openapi)
+
+    pack = sub.add_parser("pack", help="list or show question packs")
+    pack_sub = pack.add_subparsers(dest="pack_command", required=True)
+    pack_list = pack_sub.add_parser("list", help="list available packs")
+    _add_json(pack_list)
+    pack_list.set_defaults(func=cmd_pack_list)
+    pack_show = pack_sub.add_parser("show", help="print a pack as YAML")
+    pack_show.add_argument("name")
+    _add_json(pack_show)
+    pack_show.set_defaults(func=cmd_pack_show)
 
     preflight = sub.add_parser(
         "preflight", help="gate a config: baseline, clean check, calibration margins, chaos coverage"

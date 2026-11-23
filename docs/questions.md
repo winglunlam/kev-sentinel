@@ -25,6 +25,17 @@ open-ended ones do not.
    `fail_if: "choice != 'usd'"`. A score question is useful when "how plausible"
    is the judgement: `fail_if: "score < 1.5"`.
 
+## Three sources of questions
+
+1. `sentinel import openapi SPEC --out sentinel.yaml` — documented APIs; the best
+   starting point, using example responses and schema formats.
+2. `sentinel init ... --pack agent|listings|news` — common endpoint archetypes,
+   shipped as YAML in `sentinel/packs/` and open to community contributions.
+3. `sentinel init` payload inference — the fallback for undocumented APIs.
+
+All three are drafts until `sentinel calibrate` measures thresholds and
+`sentinel preflight` returns GO.
+
 ## Start from `sentinel init`
 
 `sentinel init` inspects the baseline payload and proposes questions for the

@@ -1,0 +1,66 @@
+{
+  "openapi": "3.0.3",
+  "info": {"title": "Catalogue API", "version": "1.0"},
+  "servers": [{"url": "https://api.example.com"}],
+  "paths": {
+    "/prices": {
+      "get": {
+        "operationId": "listPrices",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "currency": "USD",
+                  "products": [
+                    {"id": "sku-1", "name": "Trail Pack", "price": 129.0, "compare_at_price": 159.0},
+                    {"id": "sku-2", "name": "Ridge Boots", "price": 189.5}
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/weather/{city}": {
+      "get": {
+        "operationId": "getWeather",
+        "parameters": [
+          {"name": "city", "in": "path", "required": true, "schema": {"type": "string", "example": "berlin"}}
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "city": {"type": "string"},
+                    "generated_at": {"type": "string", "format": "date-time"},
+                    "temperature_c": {"type": "number", "minimum": -30, "maximum": 50}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health",
+        "responses": {
+          "200": {"content": {"application/json": {"example": {"status": "ok", "uptime_seconds": 1234}}}}
+        }
+      }
+    },
+    "/orders": {
+      "post": {
+        "operationId": "createOrder",
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object"}}}},
+        "responses": {"200": {"content": {"application/json": {"example": {"id": "ord-1"}}}}}
+      }
+    }
+  }
+}

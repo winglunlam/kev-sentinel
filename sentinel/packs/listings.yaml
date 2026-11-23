@@ -1,0 +1,18 @@
+name: listings
+title: Marketplace and job listings
+description: >
+  For job boards, marketplaces and catalogues. A payload can keep its schema
+  while the listings become spam, boilerplate, or a different resource.
+questions:
+  listings_present:
+    type: noul
+    instructions: >
+      Does this payload contain individual listings, each with a distinct title
+      or name and enough detail to be a real entry?
+    fail_if: "p < 0.6"
+  listing_content:
+    type: noul
+    instructions: >
+      Do the titles and descriptions read like genuine listings, rather than
+      advertising, boilerplate, or unrelated text?
+    fail_if: "p < 0.5"
