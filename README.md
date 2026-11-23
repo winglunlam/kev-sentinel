@@ -15,16 +15,69 @@ kev-sentinel checks APIs and scrapers for two kinds of change: the ones a schema
 - **Falsifiable.** `sentinel chaos` injects silent changes and prints which layer catches each one. `sentinel demo` does the whole story in one command.
 - **CI-native.** Exit codes, JSON output, GitHub step summaries, and a composite action.
 
-**Contents:** [Try it in 60 seconds](#try-it-in-60-seconds) · [Price watch](#start-here-watch-llm-model-prices) · [Kev checks](#where-kev-is-essential-llm-answer-quality) · [Install](#install) · [Configuration](#configuration-reference) · [CLI](#commands) · [Calibration](#calibration) · [Benchmark](#benchmark) · [Docs](#where-this-fits-in-the-real-world)
+**Contents:** [Try the model](#try-the-model-the-reason-this-repo-exists) · [Rules example](#try-the-rules-layer-in-10-seconds) · [Price watch](#start-here-watch-llm-model-prices) · [Kev checks](#where-kev-is-essential-llm-answer-quality) · [Install](#install) · [Configuration](#configuration-reference) · [CLI](#commands) · [Calibration](#calibration) · [Benchmark](#benchmark)
 
-## Try it in 60 seconds
+## Try the model (the reason this repo exists)
 
-No model, no API key, no network beyond the recorded fixture:
+Kev exists to catch the failure a schema check cannot see: an LLM reply that
+becomes a refusal, boilerplate, or an off-topic answer while HTTP status, JSON
+shape and token counts stay identical. The first run takes about five minutes
+because it downloads a 1.7 GB checkpoint; after that it is seconds.
 
 ```bash
-git clone https://github.com/<your-org>/kev-sentinel   # replace <your-org> with your fork
+git clone <your-org>/kev-sentinel     # replace <your-org> with your fork
 cd kev-sentinel
 uv sync --extra dev
+```
+
+**Terminal 1** — start Kev-0.8B. `make kev` clones Kev into `.kev/` (once) and
+serves it on `:8009`:
+
+```bash
+make kev
+```
+
+**Terminal 2** — record a baseline, check the clean payload, inject a refusal,
+and see which layer catches it:
+
+```bash
+uv run sentinel demo --config examples/agent-quality.yaml --inject refusal
+```
+
+```console
+1. baseline
+
+2. check the clean payloads
+✓ support-agent  200  1125 ms  fixture
+   ✓ rules  HTTP 200 (expected 200)
+   ✓ sem    answers_question: p(true)=0.86
+   ✓ sem    is_refusal: p(true)=0.14
+   ✓ sem    on_topic: p(true)=0.76
+
+3. inject a silent change
+┏━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┓
+┃ injector ┃ expected  ┃ rules  ┃ Kev                                                    ┃ detected ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━┩
+│ refusal  │ semantics │ passed │ caught: answers_question: p(true)=0.25 fails `p < 0.55` │   yes    │
+└──────────┴───────────┴────────┴────────────────────────────────────────────────────────┴──────────┘
+
+verdict: schema unchanged; Kev caught it (answers_question: p(true)=0.25 fails `p < 0.55`).
+```
+
+The injected refusal has the same length as the original reply, so every
+structural check passes. Only the model sees it.
+
+If `:8009` is taken, run `make kev KEV_PORT=8010` and prefix the second command
+with `SENTINEL_KEV_BASE_URL=http://127.0.0.1:8010`. Without `make`, clone
+`https://github.com/jaredpalmer/kev` into `.kev/` and run
+`uv sync --extra serve && uv run --extra serve python -m kev.serve --run jaredpalmer/kev-0.8b --port 8009`.
+
+## Try the rules layer in 10 seconds
+
+If you do not want a model in the loop, the exact-value layer needs no Kev, no
+API key, and no network beyond a recorded fixture:
+
+```bash
 uv run sentinel baseline set --config examples/llm-prices.yaml openrouter-models
 uv run sentinel check --config examples/llm-prices.yaml
 ```
@@ -37,26 +90,8 @@ uv run sentinel check --config examples/llm-prices.yaml
 1/1 endpoint(s) ok
 ```
 
-That is an exact-value watch over 24 recorded LLM prices; change one and the check
-fails. The next two sections show the same tool on a live price feed and on the
-model-based checks it exists for.
-
-### What a semantic check looks like
-
-```
-✓ status-page  200  86 ms
-   ✓ rules  schema unchanged · 5 items (baseline 5)
-   ✓ sem    services_list: p(true)=0.96
-   ✓ sem    all_operational: p(true)=0.98
-   ✓ sem    reporting_outage: p(true)=0.03
-
-✗ status-page  200  91 ms          # after `sentinel chaos --inject status-flip`
-   ✓ rules  schema unchanged · 5 items (baseline 5)
-   ✗ sem    all_operational: p(true)=0.02   fails `p < 0.55`
-   ✗ sem    reporting_outage: p(true)=0.95  fails `p > 0.4`
-```
-
-Every field, every type, and the record count are unchanged. The status page now reports an outage, and the schema layer cannot tell.
+That is an exact-value watch over 24 recorded LLM prices; change one and the
+check fails. The sections below go deeper on both layers.
 
 ## Kev is the engine; this repo is the contract around it
 
@@ -251,61 +286,14 @@ All five are schema-valid, all five break downstream consumers, and all five are
 
 Warehouse data-quality tools (Soda, Great Expectations, dbt tests) check tables after ingestion, not a per-endpoint response before it lands. Uptime monitors check status codes and latency. JSON Schema checks structure. A cloud LLM on every check can see meaning, but the cost and latency make hourly checks on dozens of endpoints hard to justify, and shipping scraped payloads to a third party is often a non-starter. kev-sentinel is the narrow tool in between: semantic, per-endpoint, local, and cheap.
 
-## The demo
-
-```console
-$ sentinel demo --config examples/sentinel.yaml
-1. baseline
-
-2. check the clean payloads
-✓ jobs-api  200  2345 ms  fixture
-   ✓ rules  HTTP 200 (expected 200)
-   ✓ sem    job_duties: p(true)=0.87
-   ✓ sem    salary_currency: choice=usd (0.69)
-   ✓ sem    dates_2026: p(true)=0.84
-✓ pricing-api  200  950 ms  fixture
-   ✓ rules  HTTP 200 (expected 200)
-   ✓ sem    products_list: p(true)=0.96
-   ✓ sem    usd_prices: p(true)=0.91
-   ✓ sem    updated_2026: p(true)=0.65
-✓ weather-forecast  200  484 ms  fixture
-   ✓ rules  HTTP 200 (expected 200)
-   ✓ sem    forecast_list: p(true)=0.92
-   ✓ sem    plausible_metric: p(true)=0.70
-   ✓ sem    dates_2026: p(true)=0.88
-✓ news-feed  200  581 ms  fixture
-   ✓ rules  HTTP 200 (expected 200)
-   ✓ sem    articles_list: p(true)=0.92
-   ✓ sem    dates_current: p(true)=0.75
-   ✓ sem    summary_content: p(true)=0.80
-✓ status-page  200  540 ms  fixture
-   ✓ rules  HTTP 200 (expected 200)
-   ✓ sem    services_list: p(true)=0.96
-   ✓ sem    all_operational: p(true)=0.98
-   ✓ sem    reporting_outage: p(true)=0.03
-   ✓ sem    dates_2026: p(true)=0.83
-
-5/5 endpoint(s) ok
-
-3. inject a silent change
-                            chaos injection: which layer catches the change
-┏━━━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┓
-┃ injector    ┃ expected  ┃ rules  ┃ Kev                                                    ┃ detected ┃
-┡━━━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━┩
-│ status-flip │ semantics │ passed │ caught: all_operational: p(true)=0.02 fails `p < 0.55` │   yes    │
-└─────────────┴───────────┴────────┴────────────────────────────────────────────────────────┴──────────┘
-1/1 applicable mutations detected · 1 caught by semantics only
-
-verdict: schema unchanged; Kev caught it (all_operational: p(true)=0.02 fails `p < 0.55`).
-```
-
-`status-flip` rewrites health words to failure states (`ok` → `outage`, `operational` → `down`) and stretches latency values. Types, keys, and counts are untouched. The rules layer passes; Kev does not. `sentinel demo --no-sem` runs the same story against the rules layer only, with no Kev server.
-
 ## Install
 
 Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/), and a local Kev server.
 
 ### 1. Run Kev
+
+The shortest path is `make kev` in this repository after cloning it; the manual
+steps are below.
 
 ```bash
 git clone https://github.com/jaredpalmer/kev

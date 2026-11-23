@@ -36,6 +36,15 @@ sentinel chaos --config examples/sentinel.yaml --no-sem --assert
 
 ## Run it with Kev
 
+From the repo root, `make kev` clones and serves Kev-0.8B on `:8009` (first run
+downloads the weights). Then, in another terminal:
+
+```bash
+sentinel demo --config examples/agent-quality.yaml --inject refusal
+```
+
+Or start Kev manually:
+
 ```bash
 # in a Kev checkout
 uv run --extra serve python -m kev.serve --run jaredpalmer/kev-0.8b --port 8009
