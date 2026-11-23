@@ -28,6 +28,7 @@ question meaningful:
 | `posted_at`, `published_at`, `created_at`, `updated_at` | yes/no: were these published/updated in 2026? |
 | dates only in metadata (`generated_at`, `checked_at`, `date`) | yes/no: do the dates in this payload fall in 2026? |
 | a top-level or low-cardinality status field | choice: what is the overall status? |
+| numeric series with a `*_units` map | yes/no: are the values within the observed range and stated unit? |
 | temperature fields plus a `units` field | yes/no: are the temperatures in the stated range and unit? |
 | a long-text field (`description`, `summary`, …) | yes/no: do these describe the item, rather than advertising? (jobs/news wordings) |
 
@@ -120,6 +121,10 @@ an endpoint drift.
   the questions did not object.
 - Fixtures are recorded bodies, not mocks. They are for examples and CI; production
   checks should use `--live`.
+- Range questions catch conversions that leave the observed range (Celsius
+  values relabelled as Fahrenheit) and scale regressions; they do not catch a
+  unit change whose values still fall inside the range (wind in m/s inside a
+  km/h range). Add a domain question if that matters.
 - For event streams, the inferred `stream_reply` question detects a missing reply
   (Kev-0.8B: 0.62 for a reply, 0.45 for a handshake-only stream), not a wrong one.
   Add an endpoint-specific question about the reply content if that matters.

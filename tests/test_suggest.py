@@ -119,3 +119,21 @@ endpoints:
     assert "questions:" in out
     assert "description_content" in out
     assert "sentinel calibrate jobs-api" in out
+
+
+def test_open_meteo_series_get_unit_range_questions():
+    data = read_json(EXAMPLES / "fixtures" / "open-meteo.json")
+    suggestions = {
+        item.qid: item for item in suggest_questions(data, endpoint_name="weather")
+    }
+    assert {
+        "temperature_2m_plausible",
+        "relative_humidity_2m_plausible",
+        "wind_speed_10m_plausible",
+        "dates_2026",
+    } <= set(suggestions)
+    assert "degrees Celsius" in suggestions["temperature_2m_plausible"].question.instructions
+    assert "percent" in suggestions["relative_humidity_2m_plausible"].question.instructions
+    assert "km/h" in suggestions["wind_speed_10m_plausible"].question.instructions
+    for item in suggestions.values():
+        assert item.question.fail_if.raw.startswith("p <")

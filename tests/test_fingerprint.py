@@ -85,3 +85,17 @@ def test_records_path_change():
 def test_find_records_prefers_first_object_list():
     path, records = find_records({"tags": ["a", "b"], "items": [{"x": 1}]})
     assert path == "items" and records == [{"x": 1}]
+
+
+def test_parallel_arrays_are_recorded_as_series():
+    fp = fingerprint(
+        {"hourly": {"time": ["2026-01-01T00:00"] * 5, "temperature_2m": [1, 2, 3, 4, 5]}},
+        nbytes=0,
+    )
+    assert fp["series"]["hourly.temperature_2m"] == 5
+    assert fp["series"]["hourly.time"] == 5
+
+
+def test_short_lists_are_not_series():
+    fp = fingerprint({"tags": ["a", "b"]}, nbytes=0)
+    assert "tags" not in fp["series"]

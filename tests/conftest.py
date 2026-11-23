@@ -71,6 +71,13 @@ def examples_config(tmp_path: Path):
     return load_config(target / "sentinel.yaml")
 
 
+@pytest.fixture
+def openmeteo_config(tmp_path: Path):
+    target = tmp_path / "examples"
+    shutil.copytree(EXAMPLES, target, ignore=shutil.ignore_patterns(".sentinel"))
+    return load_config(target / "open-meteo.yaml")
+
+
 class FakeJudge:
     """Answers from a dict, or from a callable that inspects the state text."""
 

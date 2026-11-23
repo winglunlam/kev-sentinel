@@ -28,8 +28,8 @@ def test_every_mutator_runs(config):
         try:
             mutation = mutator.apply(base, {}, name)
         except ValueError:
-            # stream-silence only applies to event-stream payloads
-            assert name == "stream-silence"
+            # stream-silence needs events; scale-series needs unit annotations
+            assert name in {"stream-silence", "scale-series"}
             continue
         assert mutation.body, name
         if name != "truncated" and mutation.content_type.startswith("application/json"):
@@ -147,3 +147,17 @@ def test_stream_silence_drops_content_events():
     mutation = MUTATORS["stream-silence"].apply(base, {}, "stream-silence")
     mutated = json.loads(mutation.body)
     assert [event["event"] for event in mutated["events"]] == ["connect"]
+
+
+def test_scale_series_doubles_unit_annotated_values():
+    import json
+
+    from .conftest import EXAMPLES
+
+    base = synthetic_result(
+        "weather", body=(EXAMPLES / "fixtures" / "open-meteo.json").read_bytes()
+    )
+    mutation = MUTATORS["scale-series"].apply(base, {}, "scale-series")
+    data = json.loads(mutation.body)
+    assert data["current"]["temperature_2m"] == pytest.approx(7.0)
+    assert data["hourly"]["relative_humidity_2m"][0] > 100

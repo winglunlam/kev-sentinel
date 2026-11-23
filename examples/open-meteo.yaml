@@ -1,0 +1,49 @@
+# A real public API: Open-Meteo returns parallel arrays (hourly.temperature_2m)
+# beside a unit map (hourly_units). The questions below were inferred by
+# `sentinel init --fixture examples/fixtures/open-meteo.json`; the payload is a
+# recorded response so this config runs offline.
+#
+#   sentinel baseline set --config examples/open-meteo.yaml weather
+#   sentinel check --config examples/open-meteo.yaml
+#   sentinel chaos --config examples/open-meteo.yaml --endpoint weather --inject unit-swap
+version: 1
+
+sem:
+  base_url: http://127.0.0.1:8009
+  model: kev-latest
+
+endpoints:
+  - name: weather
+    fixture: fixtures/open-meteo.json
+    notes: >
+      Berlin forecast from Open-Meteo. The silent failure is a unit or scale
+      regression that keeps the keys, the arrays and the unit labels.
+    questions:
+      temperature_2m_plausible:
+        type: noul
+        instructions: >
+          Are the temperature 2m values between -5 and 5 degrees Celsius, as stated
+          by the units field?
+        fail_if: "p < 0.6"
+      relative_humidity_2m_plausible:
+        type: noul
+        instructions: >
+          Are the relative humidity 2m values between 62 and 98 percent, as stated
+          by the units field?
+        fail_if: "p < 0.5"
+      wind_speed_10m_plausible:
+        type: noul
+        instructions: >
+          Are the wind speed 10m values between 0 and 21 km/h, as stated by the
+          units field?
+        fail_if: "p < 0.5"
+      dates_2026:
+        type: noul
+        instructions: Do the dates in this payload fall in 2026?
+        fail_if: "p < 0.5"
+      error_page:
+        type: noul
+        instructions: >
+          Does this payload show an error, access-denied, maintenance, or captcha
+          page instead of the endpoint's normal data?
+        fail_if: "p > 0.25"

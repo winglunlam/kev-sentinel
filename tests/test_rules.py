@@ -110,3 +110,31 @@ def test_extra_fields_fail_when_endpoint_is_strict(config):
         assert any(finding.rule == "schema" for finding in blocking_findings(findings))
     finally:
         store.close()
+
+
+def test_series_truncation_is_caught(openmeteo_config):
+    import json
+
+    from sentinel.core.fetch import synthetic_result
+    from sentinel.core.fingerprint import fingerprint_result
+    from sentinel.core.store import Store
+    from sentinel.rules.deterministic import run_rules
+
+    store = Store.for_home(openmeteo_config.home)
+    try:
+        endpoint = openmeteo_config.endpoint("weather")
+        data = json.loads(endpoint.fixture.read_text())
+        result = synthetic_result("weather", body=json.dumps(data).encode())
+        snapshot = store.record_snapshot("weather", result, fingerprint_result(result))
+        store.set_baseline("weather", snapshot.id)
+        baseline = store.baseline("weather")
+
+        truncated = json.loads(json.dumps(data))
+        truncated["hourly"]["temperature_2m"] = truncated["hourly"]["temperature_2m"][:20]
+        result = synthetic_result("weather", body=json.dumps(truncated).encode())
+        findings = run_rules(endpoint, result, baseline)
+        count = next(finding for finding in findings if finding.rule == "count")
+        assert not count.ok
+        assert any("hourly.temperature_2m" in detail for detail in count.details)
+    finally:
+        store.close()

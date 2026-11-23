@@ -262,6 +262,116 @@ def _freshness_suggestion(value: Any, has_publish_date: bool) -> list[Suggestion
     ]
 
 
+_TIME_UNITS = {"iso8601", "seconds", "unix", "unixtime", "s", "sec", "epoch"}
+_UNIT_LABELS = {"°c": "degrees Celsius", "c": "degrees Celsius", "°f": "degrees Fahrenheit",
+                "f": "degrees Fahrenheit", "%": "percent"}
+
+
+def _numbers(value: Any, limit: int = 300) -> list[float]:
+    if isinstance(value, bool):
+        return []
+    if isinstance(value, (int, float)):
+        return [float(value)]
+    if isinstance(value, list):
+        out: list[float] = []
+        for item in value[:limit]:
+            if isinstance(item, (int, float)) and not isinstance(item, bool):
+                out.append(float(item))
+        return out
+    return []
+
+
+def _find_field_values(root: Any, field: str, limit: int = 300) -> list[float]:
+    """Find the first dict key named ``field`` anywhere and return its numbers."""
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if field in node:
+                numbers = _numbers(node[field], limit)
+                if numbers:
+                    return numbers
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node[:50])
+    return []
+
+
+def _unit_label(unit: str) -> str:
+    return _UNIT_LABELS.get(unit.strip().lower(), unit.strip())
+
+
+def _series_suggestions(value: Any) -> list[Suggestion]:
+    """Questions for numeric series that have a companion ``*_units`` map.
+
+    Weather and sensor APIs often return parallel arrays
+    (``hourly.temperature_2m``) beside a unit map (``hourly_units``). The obvious
+    silent failure is a unit or scale regression: the values change, the labels
+    and the shape do not.
+    """
+    found: dict[str, dict[str, Any]] = {}
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, child in node.items():
+                if isinstance(key, str) and key.endswith("_units") and isinstance(child, dict):
+                    prefix = key[: -len("_units")]
+                    sibling = node.get(prefix) if prefix else None
+                    for field, unit in child.items():
+                        if not isinstance(unit, str) or unit.strip().lower() in _TIME_UNITS:
+                            continue
+                        numbers = _numbers(sibling.get(field)) if isinstance(sibling, dict) and field in sibling else []
+                        if not numbers:
+                            numbers = _find_field_values(value, str(field))
+                        if not numbers:
+                            continue
+                        entry = found.setdefault(str(field), {"unit": unit, "values": []})
+                        entry["values"].extend(numbers[:300])
+                else:
+                    walk(child)
+        elif isinstance(node, list):
+            for child in node[:50]:
+                walk(child)
+
+    walk(value)
+    ordered = sorted(found.items(), key=lambda item: (0 if "temp" in item[0].lower() else 1, item[0]))
+    suggestions: list[Suggestion] = []
+    for field, data in ordered[:3]:
+        numbers = data["values"]
+        if not numbers:
+            continue
+        low, high = min(numbers), max(numbers)
+        span = high - low
+        is_temperature = "temp" in field.lower()
+        margin = max(2.0 if is_temperature else 1.0, span * 0.15)
+        lower = int(low - margin) if low >= 0 else -(int(abs(low) + margin))
+        upper = int(high + margin) if high >= 0 else -(int(abs(high) - margin))
+        if lower > upper:
+            lower, upper = upper, lower
+        unit = _unit_label(data["unit"])
+        if data["unit"].strip() == "%":
+            lower, upper = max(0, lower), min(100, upper)
+        label = field.replace("_", " ")
+        qid = re.sub(r"[^a-z0-9]+", "_", field.lower()).strip("_") + "_plausible"
+        suggestions.append(
+            _question(
+                qid,
+                "noul",
+                f"Are the {label} values between {lower:g} and {upper:g} {unit}, as stated by "
+                "the units field?",
+                "p < 0.5",
+                rationale=(
+                    f"`{field}` is a numeric series with a companion unit ({data['unit']!r}); "
+                    f"values in the baseline run {low:g} to {high:g}. A unit or scale regression "
+                    "keeps the keys, the shape, and the unit label."
+                ),
+                field=field,
+                confidence="medium",
+            )
+        )
+    return suggestions
+
+
 def _status_suggestion(value: Any, fields: dict[str, list[Any]]) -> list[Suggestion]:
     if isinstance(value, dict):
         for key in STATUS_KEYS:
@@ -492,8 +602,11 @@ def suggest_questions(value: Any, *, endpoint_name: str) -> list[Suggestion]:
     suggestions.extend(_currency_suggestion(fields))
     date_suggestions = _date_suggestion(fields, nouns, endpoint_name)
     suggestions.extend(date_suggestions)
+    series_suggestions = _series_suggestions(value)
     suggestions.extend(_status_suggestion(value, fields))
-    suggestions.extend(_temperature_suggestion(value, fields))
+    if not any("temp" in item.qid for item in series_suggestions):
+        suggestions.extend(_temperature_suggestion(value, fields))
+    suggestions.extend(series_suggestions)
     suggestions.extend(_freshness_suggestion(value, has_publish_date=bool(date_suggestions)))
     suggestions.extend(stream_suggestion(value))
     domain = _detect_domain(value) or _domain_from_name(endpoint_name)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import sentinel.cli as cli
 from .conftest import FakeJudge, choice, copy_fixture, noul, read_json, write_json
@@ -159,3 +160,15 @@ def test_init_can_skip_inference(tmp_path, monkeypatch, capsys):
     text = (tmp_path / "sentinel.yaml").read_text()
     assert "expected_content" in text
     assert "description_content" not in text
+
+
+def test_init_infers_unit_series_questions(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    source = Path(__file__).resolve().parents[1] / "examples" / "fixtures" / "open-meteo.json"
+    fixture = tmp_path / "open-meteo.json"
+    fixture.write_text(source.read_text())
+    assert cli.main(["init", "weather", "--fixture", str(fixture)]) == 0
+    text = (tmp_path / "sentinel.yaml").read_text()
+    assert "temperature_2m_plausible" in text
+    assert "degrees Celsius" in text
+    assert "scale" not in text  # no accidental nonsense

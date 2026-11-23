@@ -11,6 +11,7 @@ names are fictional.
 | `weather-forecast` | multi-day forecast | Fahrenheit values under `"units": "metric"` |
 | `news-feed` | article list | articles go from 2026 to 2019 |
 | `status-page` | service status | `ok` flips to `outage`, `operational` to `down` |
+| `open-meteo` | forecast with parallel arrays + `*_units` (recorded Open-Meteo response) | Celsius values relabelled as Fahrenheit, or a numeric scale regression |
 
 ## One-command demo
 
@@ -44,6 +45,22 @@ sentinel calibrate --config examples/sentinel.yaml
 ```
 
 If your server is elsewhere, export `SENTINEL_KEV_BASE_URL=http://host:port`.
+
+## Open-Meteo (real public API shape)
+
+`examples/open-meteo.yaml` points at a recorded response from
+`api.open-meteo.com`, so it runs offline:
+
+```bash
+sentinel baseline set --config examples/open-meteo.yaml weather
+sentinel check --config examples/open-meteo.yaml
+sentinel chaos --config examples/open-meteo.yaml --endpoint weather --inject unit-swap
+```
+
+It is the reference for unit-annotated series: `hourly.temperature_2m` plus
+`hourly_units.temperature_2m` become a range question ("between -5 and 5 degrees
+Celsius"). To use the live API, replace `fixture:` with the `url:` from the
+header comment and drop `--live` handling as needed.
 
 ## Baselines
 

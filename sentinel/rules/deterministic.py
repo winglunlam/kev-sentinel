@@ -78,25 +78,44 @@ def _count_findings(
 ) -> list[Finding]:
     current_count = current_fp.get("item_count")
     baseline_count = baseline_fp.get("item_count")
-    if current_count is None or baseline_count is None:
-        return [Finding("count", True, "info", "item count not applicable")]
-
     details: list[str] = []
     failed = False
-    if current_count == 0:
-        failed = True
-        details.append(f"record list is empty (baseline {baseline_count})")
-    elif baseline_count >= 4 and current_count < baseline_count * endpoint.count_floor:
-        failed = True
-        details.append(
-            f"{current_count} items, down from {baseline_count} "
-            f"(floor {endpoint.count_floor:.0%} of baseline)"
-        )
-    if endpoint.min_items is not None and current_count < endpoint.min_items:
-        failed = True
-        details.append(f"{current_count} items, below min_items={endpoint.min_items}")
+
+    if current_count is not None and baseline_count is not None:
+        if current_count == 0:
+            failed = True
+            details.append(f"record list is empty (baseline {baseline_count})")
+        elif baseline_count >= 4 and current_count < baseline_count * endpoint.count_floor:
+            failed = True
+            details.append(
+                f"{current_count} items, down from {baseline_count} "
+                f"(floor {endpoint.count_floor:.0%} of baseline)"
+            )
+        if endpoint.min_items is not None and current_count < endpoint.min_items:
+            failed = True
+            details.append(f"{current_count} items, below min_items={endpoint.min_items}")
+
+    base_series = baseline_fp.get("series", {})
+    cur_series = current_fp.get("series", {})
+    for path, base_length in sorted(base_series.items()):
+        if path not in cur_series:
+            continue  # the schema rule already reports a removed path
+        current_length = cur_series[path]
+        if base_length >= 4 and current_length < base_length * endpoint.count_floor:
+            failed = True
+            details.append(f"series {path}: {current_length} values, down from {base_length}")
+
     if failed:
-        return [Finding("count", False, "error", "record count regressed", tuple(details))]
+        return [Finding("count", False, "error", "record or series count regressed", tuple(details))]
+    if current_count is None or baseline_count is None:
+        return [
+            Finding(
+                "count",
+                True,
+                "info",
+                f"{len(cur_series)} numeric series tracked" if cur_series else "item count not applicable",
+            )
+        ]
     return [Finding("count", True, "info", f"{current_count} items (baseline {baseline_count})")]
 
 

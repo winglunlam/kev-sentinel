@@ -65,6 +65,7 @@ def fingerprint(value: Any, *, nbytes: int | None = None) -> dict[str, Any]:
     nulls: Counter[str] = Counter()
     totals: Counter[str] = Counter()
     stats = {"leaves": 0, "strings": 0, "blank_strings": 0}
+    series: dict[str, int] = {}
 
     def walk(node: Any, path: str) -> None:
         kind = type_name(node)
@@ -78,6 +79,13 @@ def fingerprint(value: Any, *, nbytes: int | None = None) -> dict[str, Any]:
                 walk(child, _join(path, str(key)))
             return
         if isinstance(node, list):
+            if len(node) >= 4 and len(series) < 25:
+                sample = node[:MAX_ITEMS_SCANNED]
+                if all(
+                    isinstance(item, (int, float, str)) and not isinstance(item, bool)
+                    for item in sample
+                ):
+                    series.setdefault(path, len(node))
             for child in node[:MAX_ITEMS_SCANNED]:
                 walk(child, f"{path}[]")
             return
@@ -102,6 +110,7 @@ def fingerprint(value: Any, *, nbytes: int | None = None) -> dict[str, Any]:
         "item_count": len(records) if records is not None else None,
         "paths": {path: sorted(kinds) for path, kinds in sorted(paths.items())},
         "nulls": {path: [nulls[path], totals[path]] for path in sorted(paths) if nulls[path]},
+        "series": dict(sorted(series.items())),
         "stats": {
             "bytes": int(nbytes),
             "leaves": stats["leaves"],

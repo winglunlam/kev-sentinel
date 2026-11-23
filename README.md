@@ -127,6 +127,8 @@ sentinel --help
 
 If Kev is not on `http://127.0.0.1:8009`, set `SENTINEL_KEV_BASE_URL` or edit `sem.base_url` in `sentinel.yaml`.
 
+A second example uses a real public API: [examples/open-meteo.yaml](examples/open-meteo.yaml) monitors an Open-Meteo forecast, whose parallel arrays and `*_units` maps are what the series inference is for. It runs offline against a recorded response.
+
 ## Serving and hardware
 
 | | |
@@ -173,7 +175,7 @@ Question inference is heuristic, not magic. It looks for fields whose change wou
 | a currency code field | choice: which currency are the amounts in? |
 | `posted_at`, `published_at`, `updated_at`, … | yes/no: were these published/updated in 2026? |
 | a top-level or low-cardinality status field | choice: what is the overall status? |
-| `temp_*`, `temperature`, with a `units` field | yes/no: are the temperatures in the stated range and unit? |
+| numeric series with a `*_units` map (`hourly.temperature_2m` + `hourly_units`) | yes/no: are the values within the observed range and stated unit? (catches C→F and scale regressions) |
 | a long-text field (`description`, `summary`, …) | yes/no: do these describe the item, rather than advertising? (domain-aware wording for jobs/news content) |
 | dates in metadata only (`generated_at`, `checked_at`, `date`) | yes/no: do the dates in this payload fall in 2026? |
 
@@ -351,7 +353,7 @@ $ sentinel chaos --config examples/sentinel.yaml --endpoint jobs-api
 10/10 applicable mutations detected · 3 caught by semantics only · 2 not applicable
 ```
 
-Injectors: `wrong-entity`, `stale-dates`, `currency-swap`, `unit-swap`, `status-flip`, `stream-silence` (semantic-only), plus `field-rename`, `null-fields`, `empty-list`, `string-numbers`, `status-500`, `html-error`, `truncated` (structural). An injector that does not apply to a payload (say, `unit-swap` on a job board) is reported as `n/a` and excluded from the assertion.
+Injectors: `wrong-entity`, `stale-dates`, `currency-swap`, `unit-swap`, `status-flip`, `stream-silence`, `scale-series` (semantic-only), plus `field-rename`, `null-fields`, `empty-list`, `string-numbers`, `status-500`, `html-error`, `truncated` (structural). An injector that does not apply to a payload (say, `unit-swap` on a job board) is reported as `n/a` and excluded from the assertion.
 
 Use `--assert` in CI: it exits nonzero if any failure class goes undetected across the configured endpoints. A row that is applicable but undetected is a gap for that endpoint — add a question that covers it, or accept it explicitly.
 
@@ -465,7 +467,7 @@ Issues and pull requests are welcome. If you publish a "built with Kev" tool, te
 ```bash
 uv sync --extra dev
 uv run ruff check .           # lint
-uv run pytest                 # 95 tests, no weights or network
+uv run pytest                 # 101 tests, no weights or network
 make check                    # rules-only check over the example fixtures
 make demo                     # requires a Kev server on :8009
 make demo-offline             # the same story, rules layer only

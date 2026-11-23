@@ -266,6 +266,47 @@ def _html_error(base: FetchResult, opts: dict[str, Any], name: str) -> Mutation:
     return Mutation(spec.name, spec.description, spec.expect, 200, "text/html; charset=utf-8", body)
 
 
+def _scale_series(base: FetchResult, opts: dict[str, Any], name: str) -> Mutation:
+    """Multiply unit-annotated numeric series by 2, keeping units and shape."""
+    spec = _REGISTRY[name]
+    data = _require_json(base, name)
+    factor = float(opts.get("factor", 2.0))
+    changed = {"n": 0}
+
+    def scale_numbers(value: Any) -> Any:
+        if isinstance(value, list):
+            return [scale_numbers(item) for item in value]
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            changed["n"] += 1
+            return round(float(value) * factor, 4)
+        return value
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for key, child in list(node.items()):
+                if isinstance(key, str) and key.endswith("_units") and isinstance(child, dict):
+                    prefix = key[: -len("_units")]
+                    sibling = node.get(prefix)
+                    if isinstance(sibling, dict):
+                        for field, unit in child.items():
+                            if not isinstance(unit, str) or unit.strip().lower() in {
+                                "iso8601", "seconds", "unix", "unixtime"
+                            }:
+                                continue
+                            if field in sibling:
+                                sibling[field] = scale_numbers(sibling[field])
+                else:
+                    walk(child)
+        elif isinstance(node, list):
+            for item in node[:20]:
+                walk(item)
+
+    walk(data)
+    if changed["n"] == 0:
+        raise ValueError("scale-series needs unit-annotated numeric values")
+    return _make(spec, data)
+
+
 def _stream_silence(base: FetchResult, opts: dict[str, Any], name: str) -> Mutation:
     """Drop content events, leaving only connection/lifecycle events."""
     spec = _REGISTRY[name]
@@ -296,6 +337,7 @@ def _build_registry() -> dict[str, Mutator]:
         ("unit-swap", "convert Celsius values to Fahrenheit, leave the unit label alone", "semantics", _unit_swap),
         ("status-flip", "flip health words to failure states and stretch latencies", "semantics", _status_flip),
         ("stream-silence", "drop content events, leaving only connection/lifecycle events", "semantics", _stream_silence),
+        ("scale-series", "multiply unit-annotated numeric series by 2, keeping the unit label", "semantics", _scale_series),
         ("field-rename", "rename the most common string field", "rules", _field_rename),
         ("null-fields", "null every other scalar field", "rules", _null_fields),
         ("empty-list", "keep the schema, empty the record list", "rules", _empty_list),
