@@ -12,6 +12,7 @@ names are fictional.
 | `news-feed` | article list | articles go from 2026 to 2019 |
 | `status-page` | service status | `ok` flips to `outage`, `operational` to `down` |
 | `open-meteo` | forecast with parallel arrays + `*_units` (recorded Open-Meteo response) | Celsius values relabelled as Fahrenheit, or a numeric scale regression |
+| `llm-prices` | OpenRouter model catalogue (recorded, 24 models) | any per-token price change, compared exactly by model id |
 
 ## One-command demo
 
@@ -45,6 +46,23 @@ sentinel calibrate --config examples/sentinel.yaml
 ```
 
 If your server is elsewhere, export `SENTINEL_KEV_BASE_URL=http://host:port`.
+
+## OpenRouter LLM prices (exact watch, no Kev needed)
+
+`examples/llm-prices.yaml` watches `pricing.prompt` and `pricing.completion` for
+every model by `id`. It is the reference for deterministic drift: prices are
+exact values, so a watch block is more reliable and cheaper than a semantic
+question. The config runs offline against a recorded response; add `--live` to
+hit `api.openrouter.ai`.
+
+```bash
+sentinel baseline set --config examples/llm-prices.yaml openrouter-models
+sentinel check --config examples/llm-prices.yaml
+sentinel chaos --config examples/llm-prices.yaml --inject price-change
+```
+
+The recorded fixture is a trimmed 24-model response; record a live baseline with
+`--live` for real monitoring.
 
 ## Open-Meteo (real public API shape)
 

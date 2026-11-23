@@ -29,7 +29,7 @@ def test_every_mutator_runs(config):
             mutation = mutator.apply(base, {}, name)
         except ValueError:
             # stream-silence needs events; scale-series needs unit annotations
-            assert name in {"stream-silence", "scale-series"}
+            assert name in {"stream-silence", "scale-series", "price-change"}
             continue
         assert mutation.body, name
         if name != "truncated" and mutation.content_type.startswith("application/json"):
@@ -161,3 +161,19 @@ def test_scale_series_doubles_unit_annotated_values():
     data = json.loads(mutation.body)
     assert data["current"]["temperature_2m"] == pytest.approx(7.0)
     assert data["hourly"]["relative_humidity_2m"][0] > 100
+
+
+def test_price_change_bumps_price_strings():
+    import json
+
+    from .conftest import EXAMPLES
+
+    base = synthetic_result(
+        "prices", body=(EXAMPLES / "fixtures" / "openrouter-models.json").read_bytes()
+    )
+    mutation = MUTATORS["price-change"].apply(base, {}, "price-change")
+    before = json.loads(base.body)
+    after = json.loads(mutation.body)
+    assert before["data"][0]["pricing"]["prompt"] != after["data"][0]["pricing"]["prompt"]
+    assert isinstance(after["data"][0]["pricing"]["prompt"], str)
+    assert len(after["data"]) == len(before["data"])

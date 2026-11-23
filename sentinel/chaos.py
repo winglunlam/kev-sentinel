@@ -266,6 +266,41 @@ def _html_error(base: FetchResult, opts: dict[str, Any], name: str) -> Mutation:
     return Mutation(spec.name, spec.description, spec.expect, 200, "text/html; charset=utf-8", body)
 
 
+def _price_change(base: FetchResult, opts: dict[str, Any], name: str) -> Mutation:
+    """Multiply price/cost values by 1.25, keeping strings as strings."""
+    spec = _REGISTRY[name]
+    data = _require_json(base, name)
+    factor = float(opts.get("factor", 1.25))
+    changed = {"n": 0}
+
+    def walk(node: Any, path: str) -> Any:
+        if isinstance(node, dict):
+            return {key: walk(value, f"{path}.{key}" if path else str(key)) for key, value in node.items()}
+        if isinstance(node, list):
+            return [walk(item, path) for item in node]
+        lowered = path.lower()
+        if not any(token in lowered for token in ("pricing", "price", "cost")):
+            return node
+        if isinstance(node, bool):
+            return node
+        if isinstance(node, (int, float)):
+            changed["n"] += 1
+            return round(float(node) * factor, 10)
+        if isinstance(node, str):
+            try:
+                number = float(node)
+            except ValueError:
+                return node
+            changed["n"] += 1
+            return f"{number * factor:.12g}"
+        return node
+
+    result = walk(data, "")
+    if changed["n"] == 0:
+        raise ValueError("price-change needs numeric price/cost/pricing values")
+    return _make(spec, result)
+
+
 def _scale_series(base: FetchResult, opts: dict[str, Any], name: str) -> Mutation:
     """Multiply unit-annotated numeric series by 2, keeping units and shape."""
     spec = _REGISTRY[name]
@@ -338,6 +373,7 @@ def _build_registry() -> dict[str, Mutator]:
         ("status-flip", "flip health words to failure states and stretch latencies", "semantics", _status_flip),
         ("stream-silence", "drop content events, leaving only connection/lifecycle events", "semantics", _stream_silence),
         ("scale-series", "multiply unit-annotated numeric series by 2, keeping the unit label", "semantics", _scale_series),
+        ("price-change", "multiply pricing/cost values by 1.25, keeping their shape", "rules", _price_change),
         ("field-rename", "rename the most common string field", "rules", _field_rename),
         ("null-fields", "null every other scalar field", "rules", _null_fields),
         ("empty-list", "keep the schema, empty the record list", "rules", _empty_list),
@@ -484,7 +520,9 @@ def run_chaos(
         semantic: list[SemResult] = []
         sem_error: str | None = None
         sem_skipped: str | None = None
-        if mutated.json is None:
+        if not endpoint.questions:
+            sem_skipped = "no semantic questions configured"
+        elif mutated.json is None:
             sem_skipped = "response is not JSON"
         elif looks_like_html(mutated.text):
             sem_skipped = "response is HTML"

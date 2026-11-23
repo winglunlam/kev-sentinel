@@ -9,7 +9,7 @@ from typing import Any
 from .alert import maybe_alert
 from .config import Config, EndpointConfig
 from .core.fetch import FetchResult, fetch_endpoint
-from .core.fingerprint import fingerprint_result
+from .watch import fingerprint_with_watch
 from .core.state import build_state
 from .core.store import Store
 from .errors import BaselineError, KevError
@@ -114,6 +114,8 @@ def run_check(
 
     if not run_sem or not config.sem.enabled:
         semantic_skipped = "disabled"
+    elif not endpoint.questions:
+        semantic_skipped = "no semantic questions configured"
     elif result.json is None:
         semantic_skipped = "response is not JSON"
     elif looks_like_html(result.text):
@@ -144,7 +146,7 @@ def run_check(
     )
     duration_ms = int((time.perf_counter() - started) * 1000)
 
-    store.record_snapshot(endpoint.name, result, fingerprint_result(result))
+    store.record_snapshot(endpoint.name, result, fingerprint_with_watch(endpoint, result))
 
     intermediate = EndpointResult(
         endpoint=endpoint.name,

@@ -38,6 +38,26 @@ would look like. Defaults are labelled, medium-confidence suggestions are marked
 defaults with measured thresholds. `sentinel suggest` re-runs inference without
 rewriting the config.
 
+## Exact-value watches
+
+Some fields should never be judged by a model: a per-token price, a plan limit, a
+currency code, a version string. A `watch` block records those fields at baseline
+time (inside the fingerprint) and reports any change beyond an optional relative
+tolerance:
+
+```yaml
+watch:
+  key: id                               # identify the record list by this field
+  fields: [pricing.prompt, pricing.completion]
+  tolerance: 0.01                       # 1% relative; 0 is exact
+  report_removed: false                 # whether a disappeared entry counts
+```
+
+This is the deterministic counterpart to a semantic question. The rule of thumb:
+**watch it if you can name the exact field; ask Kev if you can only describe the
+failure.** A rules-only endpoint (`questions: {}`) needs no Kev server at all,
+which makes exact checks cheap enough for a cron job every few minutes.
+
 ## Two layers, on purpose
 
 The rules layer is a schema validator with a memory. It fingerprints the baseline
@@ -112,7 +132,9 @@ an endpoint drift.
 - It is not a scraper. You give it a URL or a recorded body; auth, pagination and
   browser rendering are yours.
 - It sees only what the state template shows. A drift in a field you do not
-  sample and do not ask about is invisible.
+  sample, watch, or ask about is invisible.
+- Watches compare exact values (with an optional relative tolerance). They will
+  not tell you whether a changed price is a good deal, only that it changed.
 - Question inference is a starting point. It cannot know that `price` is a
   subscription price or that `status` means deployment status; a human confirms
   the proposals in review, and `calibrate` confirms them with numbers.

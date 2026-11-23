@@ -138,3 +138,38 @@ def test_series_truncation_is_caught(openmeteo_config):
         assert any("hourly.temperature_2m" in detail for detail in count.details)
     finally:
         store.close()
+
+
+def test_watch_change_is_caught(openmeteo_config):
+    import json
+
+    from sentinel.core.fetch import synthetic_result
+    from sentinel.core.store import Store
+    from sentinel.rules.deterministic import blocking_findings, run_rules
+    from sentinel.watch import fingerprint_with_watch
+
+    config_path = openmeteo_config.path.parent / "llm-prices.yaml"
+    from sentinel.config import load_config
+
+    config = load_config(config_path)
+    endpoint = config.endpoint("openrouter-models")
+    store = Store.for_home(config.home)
+    try:
+        data = json.loads(endpoint.fixture.read_text())
+        result = synthetic_result("openrouter-models", body=json.dumps(data).encode())
+        snapshot = store.record_snapshot(
+            "openrouter-models", result, fingerprint_with_watch(endpoint, result)
+        )
+        store.set_baseline("openrouter-models", snapshot.id)
+        baseline = store.baseline("openrouter-models")
+
+        baseline_price = data["data"][0]["pricing"]["prompt"]
+        data["data"][0]["pricing"]["prompt"] = "9.99"
+        result = synthetic_result("openrouter-models", body=json.dumps(data).encode())
+        findings = run_rules(endpoint, result, baseline)
+        blocked = blocking_findings(findings)
+        assert blocked and blocked[0].rule == "watch"
+        assert any("pricing.prompt" in detail for detail in blocked[0].details)
+        assert any(baseline_price in detail for detail in blocked[0].details)
+    finally:
+        store.close()

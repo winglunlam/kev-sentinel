@@ -172,3 +172,28 @@ def test_init_infers_unit_series_questions(tmp_path, monkeypatch, capsys):
     assert "temperature_2m_plausible" in text
     assert "degrees Celsius" in text
     assert "scale" not in text  # no accidental nonsense
+
+
+def test_price_watch_runs_without_kev(tmp_path, monkeypatch, capsys):
+    import json
+    import shutil
+
+    from .conftest import EXAMPLES
+
+    target = tmp_path / "examples"
+    shutil.copytree(EXAMPLES, target, ignore=shutil.ignore_patterns(".sentinel"))
+    config = target / "llm-prices.yaml"
+    fixture = target / "fixtures" / "openrouter-models.json"
+
+    assert cli.main(["baseline", "set", "--config", str(config), "openrouter-models"]) == 0
+    capsys.readouterr()
+    assert cli.main(["check", "--config", str(config)]) == 0
+    out = capsys.readouterr().out
+    assert "no semantic questions configured" in out
+
+    data = json.loads(fixture.read_text())
+    data["data"][0]["pricing"]["prompt"] = "0.5"
+    fixture.write_text(json.dumps(data, indent=2))
+    assert cli.main(["check", "--config", str(config)]) == 1
+    out = capsys.readouterr().out
+    assert "watched value(s) changed" in out

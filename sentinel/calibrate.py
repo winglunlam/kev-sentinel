@@ -171,6 +171,8 @@ def run_calibration(
         raise KevError(f"cannot fetch {endpoint.name}: {base.error}")
     if base.json is None:
         raise KevError(f"{endpoint.name} is not JSON, so semantic calibration does not apply")
+    if not endpoint.questions:
+        return []
 
     clean_state = build_state(
         endpoint, base, sample_records=config.sample_records, max_chars=config.max_state_chars

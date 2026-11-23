@@ -30,6 +30,92 @@ kev-sentinel checks APIs and scrapers for two kinds of change: the ones a schema
 
 Every field, every type, and the record count are unchanged. The status page now reports an outage, and the schema layer cannot tell.
 
+## Start here: watch LLM model prices
+
+Providers change model prices; your cost spreadsheet, router config or budget alert does not notice. This example is complete and runs against a public endpoint. It needs **no model**: prices are exact values, so a `watch` block compares them. Use Kev questions on the same endpoint when the failure is a judgement call rather than a number.
+
+[examples/llm-prices.yaml](examples/llm-prices.yaml):
+
+```yaml
+version: 1
+endpoints:
+  - name: openrouter-models
+    url: https://openrouter.ai/api/v1/models
+    watch:
+      key: id
+      fields: [pricing.prompt, pricing.completion]
+    questions: {}
+```
+
+```console
+$ sentinel baseline set --config examples/llm-prices.yaml openrouter-models --live
+baseline for openrouter-models: HTTP 200, 477 items, 927076 bytes (url)
+
+$ sentinel check --config examples/llm-prices.yaml --live
+✓ openrouter-models  200  98 ms  url
+   ✓ rules  HTTP 200 (expected 200)
+   – sem   skipped: no semantic questions configured
+
+1/1 endpoint(s) ok
+```
+
+When a price moves, the watch rule is what fires (output below is the recorded
+fixture with one price changed):
+
+```console
+✗ openrouter-models  200  1 ms  fixture
+   ✓ rules  HTTP 200 (expected 200)
+   ✗ rules  1 watched value(s) changed
+          thinkingmachines/inkling-2-mini pricing.prompt: '0.000000075' -> '0.0000002'
+   – sem   skipped: no semantic questions configured
+
+0/1 endpoint(s) ok
+```
+
+The committed example uses a recorded response by default, so the commands run
+offline without `--live`. Watched values are stored in the baseline, so a price
+change is an exact comparison, not a model guess. `tolerance: 0.01` would report
+only changes above 1%; `report_removed: true` also reports models disappearing.
+
+### What to do when it fires
+
+1. **Alert.** Add `webhook_url: ${SENTINEL_WEBHOOK_URL}` to the config (or export
+   `SENTINEL_WEBHOOK_URL`). Alerts fire on the pass→fail transition, not every
+   run, with a one-hour cooldown. Any Slack/Teams/Opsgenie-compatible webhook
+   works.
+2. **Schedule it.** This config needs no Kev server, so a plain cron job is enough:
+
+   ```cron
+   17 * * * * cd /path/to/kev-sentinel &&      .venv/bin/sentinel check --config examples/llm-prices.yaml --live >> /tmp/llm-prices.log 2>&1
+   ```
+
+3. **Act on the exit code.** `check` exits 1 on a change, so a script can open an
+   issue, update a cost sheet, or block a deploy:
+
+   ```bash
+   if ! sentinel check --config examples/llm-prices.yaml --live --json > /tmp/check.json; then
+     gh issue create --title "LLM price change detected"        --body "$(cat /tmp/check.json)"
+   fi
+   ```
+
+4. **Gate CI.** The same command in a workflow step fails the build on a change;
+   `--github-summary` writes the table to `$GITHUB_STEP_SUMMARY`.
+
+If your failure is fuzzier ("is this still a model catalogue, or an error page
+that happens to be JSON?"), add a Kev question to the same endpoint:
+
+```yaml
+questions:
+  catalogue:
+    type: noul
+    instructions: Does this payload still list models with per-token pricing?
+    fail_if: "p < 0.6"
+```
+
+Then run `sentinel calibrate --config ...` to measure the threshold, and
+`sentinel chaos --inject price-change` to prove the watch layer catches the exact
+case that matters. Full example: [examples/llm-prices.yaml](examples/llm-prices.yaml).
+
 ## Why this exists
 
 Schema checks and API monitors answer the wrong question. They tell you the endpoint is up and the shape is right. They cannot tell you that:
@@ -239,7 +325,8 @@ Per endpoint:
 | `headers` | `{}` | request headers |
 | `body` | unset | request body; objects/lists are sent as JSON, strings are parsed as JSON when possible |
 | `stream_timeout_s` | `12` | seconds to collect from a `text/event-stream` before stopping |
-| `questions` | required | map of question id → question |
+| `watch` | unset | exact-value watch over selected fields: `{key, fields, tolerance, report_removed}`; see [examples/llm-prices.yaml](examples/llm-prices.yaml) |
+| `questions` | required unless `watch` is set | map of question id → question; `{}` makes a deterministic, Kev-free endpoint |
 | `state` | built-in template | placeholders: `{name} {url} {status} {content_type} {payload} {body}` |
 | `allow_extra_fields` | `true` | new fields are a warning, not a failure |
 | `expected_status` | `200` | required status code |
@@ -467,7 +554,7 @@ Issues and pull requests are welcome. If you publish a "built with Kev" tool, te
 ```bash
 uv sync --extra dev
 uv run ruff check .           # lint
-uv run pytest                 # 101 tests, no weights or network
+uv run pytest                 # 112 tests, no weights or network
 make check                    # rules-only check over the example fixtures
 make demo                     # requires a Kev server on :8009
 make demo-offline             # the same story, rules layer only

@@ -13,6 +13,7 @@ from ..config import EndpointConfig
 from ..core.fetch import FetchResult
 from ..core.fingerprint import compare_fingerprints, fingerprint
 from ..core.store import Snapshot
+from ..watch import compare_watch, discover_watch_targets
 
 
 @dataclass(frozen=True)
@@ -152,6 +153,46 @@ def _size_findings(current_fp: dict[str, Any], baseline_fp: dict[str, Any]) -> l
     return [Finding("size", True, "info", f"{cur} bytes (baseline {base})")]
 
 
+def _watch_findings(
+    endpoint: EndpointConfig, result: FetchResult, baseline: Snapshot
+) -> list[Finding]:
+    watch = endpoint.watch
+    if watch is None:
+        return []
+    if result.json is None:
+        return [Finding("watch", True, "info", "watch skipped: response is not JSON")]
+    recorded = baseline.fingerprint.get("watch")
+    if not isinstance(recorded, dict):
+        return [
+            Finding(
+                "watch",
+                False,
+                "error",
+                "baseline has no watched values; re-run `sentinel baseline set`",
+            )
+        ]
+    current = discover_watch_targets(endpoint, result.json)
+    changes = compare_watch(recorded, current, watch)
+    if changes:
+        details = []
+        for change in changes[:20]:
+            if change.kind == "removed":
+                details.append(f"{change.path}: removed (was {change.old!r})")
+            else:
+                details.append(f"{change.path}: {change.old!r} -> {change.new!r}")
+        more = f" (+{len(changes) - 20} more)" if len(changes) > 20 else ""
+        return [
+            Finding(
+                "watch",
+                False,
+                "error",
+                f"{len(changes)} watched value(s) changed{more}",
+                tuple(details),
+            )
+        ]
+    return [Finding("watch", True, "info", f"{len(recorded)} watched values unchanged")]
+
+
 def run_rules(endpoint: EndpointConfig, result: FetchResult, baseline: Snapshot) -> list[Finding]:
     """Run every deterministic rule and return one finding per rule."""
     if not result.ok:
@@ -212,6 +253,7 @@ def run_rules(endpoint: EndpointConfig, result: FetchResult, baseline: Snapshot)
     current_fp = fingerprint(result.json, nbytes=result.size)
     baseline_fp = baseline.fingerprint
     findings.extend(_schema_findings(endpoint, current_fp, baseline_fp))
+    findings.extend(_watch_findings(endpoint, result, baseline))
     findings.extend(_count_findings(endpoint, current_fp, baseline_fp))
     findings.extend(_blank_ratio_findings(current_fp, baseline_fp))
     findings.extend(_size_findings(current_fp, baseline_fp))

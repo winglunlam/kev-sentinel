@@ -1,0 +1,35 @@
+# Watch LLM model prices on OpenRouter's public models endpoint.
+#
+# This example is deliberately deterministic: prices are exact values, so a
+# `watch` block is the right tool, not a model. It runs offline against a
+# recorded response by default; add --live to hit the real endpoint.
+#
+#   sentinel baseline set --config examples/llm-prices.yaml openrouter-models
+#   sentinel check --config examples/llm-prices.yaml
+#   sentinel chaos --config examples/llm-prices.yaml --inject price-change
+#
+# For the live endpoint:
+#   sentinel baseline set --config examples/llm-prices.yaml openrouter-models --live
+#   sentinel check --config examples/llm-prices.yaml --live
+version: 1
+
+sem:
+  base_url: http://127.0.0.1:8009
+  model: kev-latest
+
+endpoints:
+  - name: openrouter-models
+    url: https://openrouter.ai/api/v1/models
+    fixture: fixtures/openrouter-models.json
+    notes: >
+      OpenRouter's public catalogue with per-token prices. Prices are strings, so
+      a schema check cannot see a price change; the watch block compares exact
+      values by model id. No Kev questions are configured: this endpoint is
+      deterministic by design.
+    watch:
+      key: id
+      fields:
+        - pricing.prompt
+        - pricing.completion
+      tolerance: 0.0
+    questions: {}

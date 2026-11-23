@@ -25,7 +25,7 @@ from .chaos import MUTATIONS, MUTATORS, run_chaos
 from .check import EndpointResult, run_check
 from .config import Config, EndpointConfig, load_config, starter_config
 from .core.fetch import fetch_endpoint, synthetic_result
-from .core.fingerprint import fingerprint_result
+from .watch import fingerprint_with_watch
 from .core.store import Store
 from .errors import BaselineError, ConfigError, KevError, SentinelError
 from .report import (
@@ -273,7 +273,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         return EXIT_OK
 
     with Store.for_home(config.home) as store:
-        snapshot = store.record_snapshot(args.name, result, fingerprint_result(result))
+        snapshot = store.record_snapshot(args.name, result, fingerprint_with_watch(probe, result))
         store.set_baseline(args.name, snapshot.id)
 
     fingerprint = snapshot.fingerprint
@@ -304,7 +304,7 @@ def cmd_baseline_set(args: argparse.Namespace) -> int:
             )
             if not result.ok:
                 raise ConfigError(f"could not fetch {name}: {result.error}")
-            snapshot = store.record_snapshot(endpoint.name, result, fingerprint_result(result))
+            snapshot = store.record_snapshot(endpoint.name, result, fingerprint_with_watch(endpoint, result))
             store.set_baseline(endpoint.name, snapshot.id)
             console.print(
                 f"baseline set for [bold]{endpoint.name}[/]: HTTP {snapshot.status}, "
@@ -474,7 +474,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
             if not result.ok:
                 console.print(f"   [red]{endpoint.name}: {escape(result.error or 'fetch failed')}[/]")
                 return EXIT_CONFIG
-            snapshot = store.record_snapshot(endpoint.name, result, fingerprint_result(result))
+            snapshot = store.record_snapshot(endpoint.name, result, fingerprint_with_watch(endpoint, result))
             store.set_baseline(endpoint.name, snapshot.id)
             console.print(f"   recorded {endpoint.name} ({snapshot.nbytes} bytes)")
 

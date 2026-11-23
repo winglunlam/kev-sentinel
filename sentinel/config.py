@@ -46,6 +46,7 @@ _TOP_KEYS = {
 _SEM_KEYS = {"backend", "base_url", "model", "api_key_env", "timeout_s", "separate", "enabled"}
 _ENDPOINT_KEYS = {
     "name",
+    "watch",
     "url",
     "method",
     "headers",
@@ -178,6 +179,16 @@ class Question:
 
 
 @dataclass(frozen=True)
+class WatchConfig:
+    """Exact-value watch over selected fields of a payload."""
+
+    fields: tuple[str, ...]
+    key: str | None = None
+    tolerance: float = 0.0
+    report_removed: bool = False
+
+
+@dataclass(frozen=True)
 class EndpointConfig:
     name: str
     questions: dict[str, Question]
@@ -187,6 +198,7 @@ class EndpointConfig:
     body: Any = None
     fixture: Path | None = None
     stream_timeout_s: float = 12.0
+    watch: WatchConfig | None = None
     state: str = DEFAULT_STATE_TEMPLATE
     notes: str = ""
     allow_extra_fields: bool = True
@@ -435,9 +447,15 @@ def _parse_endpoint(
     if not isinstance(stream_timeout, (int, float)) or stream_timeout <= 0:
         raise ConfigError(f"{where}.stream_timeout_s must be a positive number")
 
+    watch = _parse_watch(raw.get("watch"), f"{where}.watch")
+
     questions_raw = raw.get("questions")
-    if not isinstance(questions_raw, Mapping) or not questions_raw:
-        raise ConfigError(f"{where}.questions: expected a non-empty mapping of question id to question")
+    if questions_raw is None:
+        questions_raw = {}
+    if not isinstance(questions_raw, Mapping):
+        raise ConfigError(f"{where}.questions: expected a mapping of question id to question")
+    if not questions_raw and watch is None:
+        raise ConfigError(f"{where}.questions: expected at least one question (or a `watch` block)")
     questions: dict[str, Question] = {}
     for qid, question_raw in questions_raw.items():
         questions[str(qid)] = _parse_question(str(qid), question_raw, f"{where}.questions.{qid}")
@@ -463,6 +481,33 @@ def _parse_endpoint(
         count_floor=float(count_floor),
         timeout_s=float(timeout) if timeout is not None else None,
         stream_timeout_s=float(stream_timeout),
+        watch=watch,
+    )
+
+
+def _parse_watch(raw: Any, where: str) -> WatchConfig | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise ConfigError(f"{where}: expected a mapping")
+    _check_keys(raw, {"fields", "key", "tolerance", "report_removed"}, where)
+    fields = raw.get("fields")
+    if not isinstance(fields, list) or not fields or not all(isinstance(item, str) and item.strip() for item in fields):
+        raise ConfigError(f"{where}.fields: expected a non-empty list of dotted field paths")
+    key = raw.get("key")
+    if key is not None and (not isinstance(key, str) or not key.strip()):
+        raise ConfigError(f"{where}.key: expected a field name (e.g. `id`) or omit it")
+    tolerance = raw.get("tolerance", 0.0)
+    if not isinstance(tolerance, (int, float)) or tolerance < 0:
+        raise ConfigError(f"{where}.tolerance: expected a non-negative number (relative)")
+    report_removed = raw.get("report_removed", False)
+    if not isinstance(report_removed, bool):
+        raise ConfigError(f"{where}.report_removed must be true or false")
+    return WatchConfig(
+        fields=tuple(item.strip() for item in fields),
+        key=key.strip() if isinstance(key, str) else None,
+        tolerance=float(tolerance),
+        report_removed=report_removed,
     )
 
 
